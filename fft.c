@@ -115,8 +115,13 @@ int main(int argc,char** argv)
 	MPI_Comm_size(MPI_COMM_WORLD,&size);
 	MPI_Comm_rank(MPI_COMM_WORLD,&prank);
 	int N = 10;
-	if (argc>1) N=atoi(argv[1]);
 	int P0 = lfactor(size);
+	if (argc>1) {
+		N=atoi(argv[1]);
+		if (argc>2) {
+			P0=atoi(argv[2]);
+		}
+	}
 	int P[] = {P0,size/P0}; //per proc 4*4*4 or 8*4*2
 	int Nx=N/P[0],Ny=N/P[1];
 	const int Nm = 1; //round sqrt(N*N/P/P/P) so that Nm and N*N/P/P/P/Nm integers 
@@ -126,7 +131,7 @@ int main(int argc,char** argv)
 	if (prank==0) printf("N: %d, P: %dx%d\n",N,P[0],P[1]);
 	
 	if (N%P0!=0 || N%P[1]!=0) {
-		if (prank==0) printf("N needs to be dividible by the two factors closest to sqrt of number of P\n");
+		if (prank==0) printf("N needs to be dividible by the processor grid dimensions\n");
 		MPI_Finalize();
 		return 1;
 	}
