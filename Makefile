@@ -1,15 +1,19 @@
-CC=icc
-CCFLAGS =	-fast -Wall -fmessage-length=0
+#CC=icc
+#CCFLAGS =	-fast -Wall -fmessage-length=0
+#LIBS = -lfftw3f
 
-#CCFLAGS =	-O2 -g -Wall -fmessage-length=0
+CC=mpicc
+CCFLAGS =	-O2 -g -Wall -fmessage-length=0
+LIBS = -lfftw3f
+
+#CC=cc
 
 OBJS =		fft.o
 
-LIBS = -lfftw3f
 
 TARGET =	fft
 
-CC=mpicc
+
 
 $(TARGET):	$(OBJS)
 	$(CC) -o $(TARGET) $(OBJS) $(LIBS)

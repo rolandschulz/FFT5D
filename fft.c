@@ -15,6 +15,7 @@
 
 #include <fftw3.h>
 #include <mpi.h>
+#include <float.h>
 #include <math.h>
 
 #define FFTW(x) fftwf_##x
