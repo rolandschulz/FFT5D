@@ -31,54 +31,7 @@ void init_random(float* x, int l, int dim, int ld) {
 	}
 }
 
-//int test_equal(type* x, type* y, type f, int l, int dim, int ld) {
-//	int i,j;
-//	for (i=0;i<((dim==1)?1:l);i++) {
-//		for (j=0;j<l;j++) {
-//			//printf("%g %g %g %g\n",x[j+i*ld],y[j+i*ld],(x[j+i*ld]-y[j+i*ld]*f)/x[j+i*ld],__FLT_EPSILON__);
-//			if ((x[j+i*ld]-y[j+i*ld]*f)/x[j+i*ld]>EPS*f) return 0;
-//		}
-//	}
-//	return 1;
-//}
 
-void print(const char* fn,const type* M,int l,int dim, int ld) {
-	int i,j;
-	FILE* f = fopen(fn,"w");
-	for (j=0;j<((dim==1)?1:l);j++) {
-		for (i=0;i<l;i++) {
-			fprintf(f,"%f",M[i+j*ld]);
-			if (i<l-1) fprintf(f,",");
-		}
-		fprintf(f,"\n");
-	}
-	fclose(f);
-}
-
-void printc(const char* fn,const FFTW(complex)* M,int n,int m) {
-	int i,j;
-	FILE* f = fopen(fn,"w");
-	for (j=0;j<n;j++) {
-		for (i=0;i<m;i++) {
-			fprintf(f,"%f%+fi",creal(M[i+j*m]),cimag(M[i+j*m]));
-			if (i<m-1) fprintf(f,",");
-		}
-		fprintf(f,"\n");
-	}
-	fclose(f);
-}
-
-
-void copy(type* lin, type* in, int Nx, int Ny, int Nz, int ld) {
-	int i,j,k,l=0;
-	for (i=0;i<Nx;i++) {
-		for (j=0;j<Ny;j++) {
-			for (k=0;k<Nz;k++) {
-				lin[l++]=in[k+j*ld+i*ld*ld];
-			}
-		}	
-	}
-}
 
 void swap(type *a, type *b) {
 	type t=*a;
@@ -124,8 +77,7 @@ int main(int argc,char** argv)
 	}
 	int P[] = {P0,size/P0}; //per proc 4*4*4 or 8*4*2
 	int Nx=N/P[0],Ny=N/P[1];
-	const int Nm = 1; //round sqrt(N*N/P/P/P) so that Nm and N*N/P/P/P/Nm integers 
-	int i,j,k,l,rank[2],coor[2];
+	int i,j,k,l,coor[2];
 	type *in;
 	
 	if (prank==0) printf("N: %d, P: %dx%d\n",N,P[0],P[1]);
@@ -136,7 +88,7 @@ int main(int argc,char** argv)
 		return 1;
 	}
 	
-	FFTW(plan) p11,p12,p13,p2;
+	FFTW(plan) p11,p12,p2;
 	 
 	//MPI_Comm_rank(MPI_COMM_WORLD,&rank);
 	int wrap[]={0,0};
@@ -146,9 +98,7 @@ int main(int argc,char** argv)
 	
 	int N2=N;//for real:2*(N/2+1)
 	in = (type*) FFTW(malloc)(sizeof(type) * N2*N*N);
-#ifndef NDEBUG
-	type* tmp = (type*) FFTW(malloc)(sizeof(type) * N2*N*N);
-#endif
+
 
 	
 	type *lin = (type*)FFTW(malloc)(sizeof(type) * N2*Nx*Ny); //local in
@@ -286,31 +236,31 @@ int main(int argc,char** argv)
 	FFTW(execute)(p11);
 	time_fft[m]+=MPI_Wtime()-time;
 	
-	if (m==0) 
-	if (N>128) {
-		if (prank==0) printf("No correctness check above 128\n");
-	} else {
-		FFTW(execute)(p2);
-	
-		//print("in",in,N,2,ld);
-		//print("tmp",tmp,N,2,ld);
-		//assert(test_equal(in,tmp,N*N*N,N,2,N2));
+	if (m==0) {
+		if (N>128) {
+			if (prank==0) printf("No correctness check above 128\n");
+		} else {
+			FFTW(execute)(p2);
 		
-		for (i=0;i<N2*sizeof(type)/sizeof(float);i+=2) {//x
-			for (j=0;j<Nx;j++) {//z
-				for (k=0;k<Ny;k++) {//y
-					for (l=0;l<2;l++) {
-//						printf("%f %f ",((float*)lin2)[i+l+j*N*sizeof(type)/sizeof(float)+k*N*Nx*sizeof(type)/sizeof(float)],((float*)in)[i+l+(coor[1]*Nx+k)*N2*sizeof(type)/sizeof(float)+(coor[0]*Nx+j)*N*N2*sizeof(type)/sizeof(float)]);
-						assert(((float*)lin2)[i+l+j*N*sizeof(type)/sizeof(float)+k*N*Nx*sizeof(type)/sizeof(float)]-((float*)in)[i+l+(coor[1]*Ny+k)*N2*sizeof(type)/sizeof(float)+(coor[0]*Nx+j)*N*N2*sizeof(type)/sizeof(float)]<N*N*N*EPS);
+			//print("in",in,N,2,ld);
+			//print("tmp",tmp,N,2,ld);
+			//assert(test_equal(in,tmp,N*N*N,N,2,N2));
+			
+			for (i=0;i<N2*sizeof(type)/sizeof(float);i+=2) {//x
+				for (j=0;j<Nx;j++) {//z
+					for (k=0;k<Ny;k++) {//y
+						for (l=0;l<2;l++) {
+	//						printf("%f %f ",((float*)lin2)[i+l+j*N*sizeof(type)/sizeof(float)+k*N*Nx*sizeof(type)/sizeof(float)],((float*)in)[i+l+(coor[1]*Nx+k)*N2*sizeof(type)/sizeof(float)+(coor[0]*Nx+j)*N*N2*sizeof(type)/sizeof(float)]);
+							assert(((float*)lin2)[i+l+j*N*sizeof(type)/sizeof(float)+k*N*Nx*sizeof(type)/sizeof(float)]-((float*)in)[i+l+(coor[1]*Ny+k)*N2*sizeof(type)/sizeof(float)+(coor[0]*Nx+j)*N*N2*sizeof(type)/sizeof(float)]<N*N*N*EPS);
+						}
+	//					printf("\n");
 					}
-//					printf("\n");
 				}
 			}
+		
+			if (prank==0) printf("OK\n");
 		}
-	
-		if (prank==0) printf("OK\n");
 	}
-	
 	} // end measure
 	
 	avg(time_local,N_measure);
