@@ -223,6 +223,7 @@ int main(int argc,char** argv)
 	//printf("%lf\n",time_mpi1[m]);
 	
 	time=MPI_Wtime();
+#ifdef FFT_TRANSPOSE
 	for (i=0;i<P[1];i++) { //index cube along long axis
 		for (l=0;l<Ny;l++) { //3.
 			for (j=0;j<Ny;j++) { //1.
@@ -232,19 +233,25 @@ int main(int argc,char** argv)
 			}
 		}
 	}	
-//	for (i=0;i<P[1];i++) { //index cube along long axis
-//		for (j=0;j<Ny;j++) { //1.
-//			for (k=0;k<Nx;k++) { //2.
-//				for (l=0;l<Ny;l++) { //3.
-//					lin[(i*Ny+l)+k*N+j*N*Nx]=lin2[j+k*Ny+l*Nx*Ny+i*Nx*Ny*Ny];
-//				}
-//			}
-//		}
-//	}	
+#else
+	for (i=0;i<P[1];i++) { //index cube along long axis
+		for (j=0;j<Ny;j++) { //1.
+			for (k=0;k<Nx;k++) { //2.
+				for (l=0;l<Ny;l++) { //3.
+					lin[(i*Ny+l)+k*N+j*N*Nx]=lin2[j+k*Ny+l*Nx*Ny+i*Nx*Ny*Ny];
+				}
+			}
+		}
+	}	
+#endif
 	time_local[m]+=MPI_Wtime()-time;
 	
 	time=MPI_Wtime();
+#ifdef FFT_TRANSPOSE
 	FFTW(execute)(p12);
+#else
+	FFTW(execute)(p11);
+#endif
 	time_fft[m]+=MPI_Wtime()-time;
 	
 	time=MPI_Wtime();
