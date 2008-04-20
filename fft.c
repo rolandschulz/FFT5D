@@ -26,11 +26,11 @@ typedef FFTW(complex) type;
 typedef float rtype;
 #define EPS __FLT_EPSILON__
 
-void init_random(float* x, int l, int dim, int ld) {
+void init_random(rtype* x, int l, int dim, int ld) {
 	int i,j;
 	for (i=0;i<((dim==1)?1:l);i++) {
 		for (j=0;j<l;j++) {
-			x[j+i*ld]=((type)rand())/RAND_MAX;
+			x[j+i*ld]=((rtype)rand())/RAND_MAX;
 		}
 	}
 }
