@@ -14,12 +14,16 @@
 #include <complex.h>
 
 #include <fftw3.h>
+#ifdef FFT_MPI_TRANSPOSE
+#include <fftw3-mpi.h>
+#endif
 #include <mpi.h>
 #include <float.h>
 #include <math.h>
 
 #define FFTW(x) fftwf_##x
 typedef FFTW(complex) type;
+typedef float rtype;
 #define EPS __FLT_EPSILON__
 
 void init_random(float* x, int l, int dim, int ld) {
@@ -88,13 +92,17 @@ int main(int argc,char** argv)
 		return 1;
 	}
 	
-	FFTW(plan) p11,p12,p2;
+	FFTW(plan) p11,p2;
 	 
 	//MPI_Comm_rank(MPI_COMM_WORLD,&rank);
 	int wrap[]={0,0};
 	MPI_Comm cart;
 	MPI_Cart_create(MPI_COMM_WORLD,2,P,wrap,1,&cart); //true: reorder
 	MPI_Cart_get(cart,2,P,wrap,coor);
+	int rdim1[] = {0,1}, rdim2[] = {1,0};
+	MPI_Comm cart1, cart2;
+	MPI_Cart_sub(cart, rdim1 , &cart1);
+	MPI_Cart_sub(cart, rdim2 , &cart2);
 	
 	int N2=N;//for real:2*(N/2+1)
 	in = (type*) FFTW(malloc)(sizeof(type) * N2*N*N);
@@ -107,9 +115,15 @@ int main(int argc,char** argv)
 	p2 = FFTW(plan_dft_3d)(N, N, N, (FFTW(complex)*)in, (FFTW(complex)*)in, FFTW_FORWARD, FFTW_ESTIMATE);
 	p11 = FFTW(plan_many_dft)(1, &N, Nx*Ny,   (FFTW(complex)*)lin, &N, 1,   N, 
 													 (FFTW(complex)*)lin2, &N, 1,   N, FFTW_FORWARD, FFTW_MEASURE|FFTW_DESTROY_INPUT);//prod: FFTW_MEASURE
-	p12 = FFTW(plan_many_dft)(1, &N, Nx*Ny,   (FFTW(complex)*)lin, &N, Nx*Ny,   1, 
+#ifdef FFT_LOCAL_TRANSPOSE
+	FFTW(plan) p12 = FFTW(plan_many_dft)(1, &N, Nx*Ny,   (FFTW(complex)*)lin, &N, Nx*Ny,   1, 
 														 (FFTW(complex)*)lin2, &N, 1,   N, FFTW_FORWARD, FFTW_MEASURE|FFTW_DESTROY_INPUT);//prod: FFTW_MEASURE
-				
+#endif
+	
+#ifdef FFT_MPI_TRANSPOSE
+	FFTW(plan) mpip1 = FFTW(mpi_plan_many_transpose)(P[1], P[1], Nx*Ny*Ny*2, 1, 1, (rtype*)lin, (rtype*)lin2, cart1, FFTW_MEASURE);
+	FFTW(plan) mpip2 = FFTW(mpi_plan_many_transpose)(P[0], P[0], Nx*Nx*Ny*2, 1, 1, (rtype*)lin, (rtype*)lin2, cart2, FFTW_MEASURE);
+#endif
 	init_random((float*)in,N2*N*N*sizeof(type)/sizeof(float),1,1);
 		
 
@@ -124,13 +138,6 @@ int main(int argc,char** argv)
 		}
 	}
 	
-	
-
-	
-	int rdim1[] = {0,1}, rdim2[] = {1,0};
-	MPI_Comm cart1, cart2;
-	MPI_Cart_sub(cart, rdim1 , &cart1);
-	MPI_Cart_sub(cart, rdim2 , &cart2);
 
 	//lin: y,x,z
 	
@@ -167,13 +174,18 @@ int main(int argc,char** argv)
 
 	//send, recv
 	time=MPI_Wtime();
-	MPI_Alltoall(lin,Nx*Ny*Ny*sizeof(type)/sizeof(float),MPI_FLOAT,lin2,Nx*Ny*Ny*sizeof(type)/sizeof(float),MPI_FLOAT,cart1);
+
+#ifdef FFT_MPI_TRANSPOSE
+    FFTW(execute)(mpip1);
+#else
+    MPI_Alltoall(lin,Nx*Ny*Ny*sizeof(type)/sizeof(float),MPI_FLOAT,lin2,Nx*Ny*Ny*sizeof(type)/sizeof(float),MPI_FLOAT,cart1);
+#endif
 	time_mpi1[m]=MPI_Wtime()-time;
-	
-	//printf("%lf\n",time_mpi1[m]);
+
+
 	
 	time=MPI_Wtime();
-#ifdef FFT_TRANSPOSE
+#ifdef FFT_LOCAL_TRANSPOSE
 	for (i=0;i<P[1];i++) { //index cube along long axis
 		for (l=0;l<Ny;l++) { //3.
 			for (j=0;j<Ny;j++) { //1.
@@ -197,7 +209,7 @@ int main(int argc,char** argv)
 	time_local[m]+=MPI_Wtime()-time;
 	
 	time=MPI_Wtime();
-#ifdef FFT_TRANSPOSE
+#ifdef FFT_LOCAL_TRANSPOSE
 	FFTW(execute)(p12);
 #else
 	FFTW(execute)(p11);
@@ -217,7 +229,11 @@ int main(int argc,char** argv)
 	time_local[m]+=MPI_Wtime()-time;
 
 	time=MPI_Wtime();
+#ifdef FFT_MPI_TRANSPOSE
+    FFTW(execute)(mpip2);
+#else
 	MPI_Alltoall(lin,Nx*Nx*Ny*sizeof(type)/sizeof(float),MPI_FLOAT,lin2,Nx*Nx*Ny*sizeof(type)/sizeof(float),MPI_FLOAT,cart2);
+#endif
 	time_mpi2[m]=MPI_Wtime()-time;
 
 	time=MPI_Wtime();
@@ -251,7 +267,7 @@ int main(int argc,char** argv)
 					for (k=0;k<Ny;k++) {//y
 						for (l=0;l<2;l++) {
 	//						printf("%f %f ",((float*)lin2)[i+l+j*N*sizeof(type)/sizeof(float)+k*N*Nx*sizeof(type)/sizeof(float)],((float*)in)[i+l+(coor[1]*Nx+k)*N2*sizeof(type)/sizeof(float)+(coor[0]*Nx+j)*N*N2*sizeof(type)/sizeof(float)]);
-							assert(((float*)lin2)[i+l+j*N*sizeof(type)/sizeof(float)+k*N*Nx*sizeof(type)/sizeof(float)]-((float*)in)[i+l+(coor[1]*Ny+k)*N2*sizeof(type)/sizeof(float)+(coor[0]*Nx+j)*N*N2*sizeof(type)/sizeof(float)]<N*N*N*EPS);
+							assert(fabs(((float*)lin2)[i+l+j*N*sizeof(type)/sizeof(float)+k*N*Nx*sizeof(type)/sizeof(float)]-((float*)in)[i+l+(coor[1]*Ny+k)*N2*sizeof(type)/sizeof(float)+(coor[0]*Nx+j)*N*N2*sizeof(type)/sizeof(float)])<N*N*N*EPS);
 						}
 	//					printf("\n");
 					}
@@ -285,8 +301,14 @@ int main(int argc,char** argv)
 	
 
 	FFTW(destroy_plan)(p11);
-	//FFTW(destroy_plan)(p12);
+#ifdef FFT_LOCAL_TRANSPOSE
+	FFTW(destroy_plan)(p12);
+#endif
 	FFTW(destroy_plan)(p2);
+#ifdef FFT_MPI_TRANSPOSE
+	FFTW(destroy_plan)(mpip1);
+	FFTW(destroy_plan)(mpip2);
+#endif
 	FFTW(free)(in);
 	FFTW(free)(lin);
 	FFTW(free)(lin2);
