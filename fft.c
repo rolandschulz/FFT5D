@@ -21,10 +21,22 @@
 #include <float.h>
 #include <math.h>
 
+#ifdef PFFT_SINGLE
 #define FFTW(x) fftwf_##x
 typedef FFTW(complex) type;
 typedef float rtype;
 #define EPS __FLT_EPSILON__
+#define MPI_RTYPE MPI_FLOAT
+#else
+#define FFTW(x) fftw_##x
+typedef FFTW(complex) type;
+typedef double rtype;
+#define EPS __DBL_EPSILON__
+#define MPI_RTYPE MPI_DOUBLE
+#endif
+
+
+
 
 void init_random(rtype* x, int l, int dim, int ld) {
 	int i,j;
@@ -86,13 +98,13 @@ int main(int argc,char** argv)
 	
 	if (prank==0) printf("N: %d, P: %dx%d\n",N,P[0],P[1]);
 	
-	if (N%P0!=0 || N%P[1]!=0) {
+	if (N%P[0]!=0 || N%P[1]!=0) {
 		if (prank==0) printf("N needs to be dividible by the processor grid dimensions\n");
 		MPI_Finalize();
 		return 1;
 	}
 	
-	FFTW(plan) p11,p2;
+	FFTW(plan) p1,p2;
 	 
 	//MPI_Comm_rank(MPI_COMM_WORLD,&rank);
 	int wrap[]={0,0};
@@ -104,7 +116,11 @@ int main(int argc,char** argv)
 	MPI_Cart_sub(cart, rdim1 , &cart1);
 	MPI_Cart_sub(cart, rdim2 , &cart2);
 	
-	int N2=N;//for real:2*(N/2+1)
+#ifdef PFFT_COMPLEX
+	int N2=2*(N/2+1);
+#else
+	int N2=N;
+#endif
 	in = (type*) FFTW(malloc)(sizeof(type) * N2*N*N);
 
 
@@ -113,18 +129,22 @@ int main(int argc,char** argv)
 	type *lin2 = (type*)FFTW(malloc)(sizeof(type) * N2*Nx*Ny); //local in
 
 	p2 = FFTW(plan_dft_3d)(N, N, N, (FFTW(complex)*)in, (FFTW(complex)*)in, FFTW_FORWARD, FFTW_ESTIMATE);
-	p11 = FFTW(plan_many_dft)(1, &N, Nx*Ny,   (FFTW(complex)*)lin, &N, 1,   N, 
+	p1 = FFTW(plan_many_dft)(1, &N, Nx*Ny,   (FFTW(complex)*)lin, &N, 1,   N, 
 													 (FFTW(complex)*)lin2, &N, 1,   N, FFTW_FORWARD, FFTW_MEASURE|FFTW_DESTROY_INPUT);//prod: FFTW_MEASURE
-#ifdef FFT_LOCAL_TRANSPOSE
+	
+	
+	#ifdef FFT_LOCAL_TRANSPOSE
 	FFTW(plan) p12 = FFTW(plan_many_dft)(1, &N, Nx*Ny,   (FFTW(complex)*)lin, &N, Nx*Ny,   1, 
 														 (FFTW(complex)*)lin2, &N, 1,   N, FFTW_FORWARD, FFTW_MEASURE|FFTW_DESTROY_INPUT);//prod: FFTW_MEASURE
 #endif
 	
 #ifdef FFT_MPI_TRANSPOSE
-	FFTW(plan) mpip1 = FFTW(mpi_plan_many_transpose)(P[1], P[1], Nx*Ny*Ny*2, 1, 1, (rtype*)lin, (rtype*)lin2, cart1, FFTW_MEASURE);
-	FFTW(plan) mpip2 = FFTW(mpi_plan_many_transpose)(P[0], P[0], Nx*Nx*Ny*2, 1, 1, (rtype*)lin, (rtype*)lin2, cart2, FFTW_MEASURE);
+//	FFTW(plan) mpip1 = FFTW(mpi_plan_many_transpose)(P[1], P[1], Nx*Ny*Ny*2, 1, 1, (rtype*)lin, (rtype*)lin2, cart1, FFTW_MEASURE);
+//	FFTW(plan) mpip2 = FFTW(mpi_plan_many_transpose)(P[0], P[0], Nx*Nx*Ny*2, 1, 1, (rtype*)lin, (rtype*)lin2, cart2, FFTW_MEASURE);
+	FFTW(plan) mpip1 = FFTW(mpi_plan_many_transpose)(P[1], N, Nx*Ny*2, 1, Ny, (rtype*)lin, (rtype*)lin2, cart1, FFTW_MEASURE|FFTW_MPI_TRANSPOSED_OUT);
+	FFTW(plan) mpip2 = FFTW(mpi_plan_many_transpose)(P[0], N, Nx*Ny*2, 1, Nx, (rtype*)lin, (rtype*)lin2, cart2, FFTW_MEASURE|FFTW_MPI_TRANSPOSED_OUT);//|FFTW_MPI_TRANSPOSED_IN);
 #endif
-	init_random((float*)in,N2*N*N*sizeof(type)/sizeof(float),1,1);
+	init_random((rtype*)in,N2*N*N*sizeof(type)/sizeof(rtype),1,1);
 		
 
 	
@@ -147,10 +167,12 @@ int main(int argc,char** argv)
 	
 	for (m=0;m<N_measure;m++) {
 	time=MPI_Wtime(); 
-	FFTW(execute)(p11); //in:lin out:lin2
+	FFTW(execute)(p1); //in:lin out:lin2
 	time_fft[m]=MPI_Wtime()-time;
 
 	time=MPI_Wtime(); 
+	//prepare for AllToAll
+	//1. (most outer) axes (y) is split into P[1] parts of size Ny for sending 
 	for (i=0;i<P[1];i++) { //index cube along long axis
 		for (l=0;l<Ny;l++) { //3.
 			for (k=0;k<Nx;k++) { //2.
@@ -166,7 +188,7 @@ int main(int argc,char** argv)
 //		for (j=0;j<Nx;j++) {
 //			printf("%d %d: ",coor[0],coor[1]);
 //			for(i=0;i<N;i++) {
-//				printf("%f ",((float*)lin)[(i+j*N+k*Nx*N)*2]);
+//				printf("%f ",((rtype*)lin)[(i+j*N+k*Nx*N)*2]);
 //			}
 //			printf("\n");
 //		}
@@ -178,7 +200,7 @@ int main(int argc,char** argv)
 #ifdef FFT_MPI_TRANSPOSE
     FFTW(execute)(mpip1);
 #else
-    MPI_Alltoall(lin,Nx*Ny*Ny*sizeof(type)/sizeof(float),MPI_FLOAT,lin2,Nx*Ny*Ny*sizeof(type)/sizeof(float),MPI_FLOAT,cart1);
+    MPI_Alltoall(lin,Nx*Ny*Ny*sizeof(type)/sizeof(rtype),MPI_RTYPE,lin2,Nx*Ny*Ny*sizeof(type)/sizeof(rtype),MPI_RTYPE,cart1);
 #endif
 	time_mpi1[m]=MPI_Wtime()-time;
 
@@ -196,6 +218,11 @@ int main(int argc,char** argv)
 		}
 	}	
 #else
+	
+	//bring back in matrix form (could be avoided by storing blocks as eleftheriou)
+	//thus make y (former 1. axes) again contiguos
+	//also local transpose 1 and 3 
+	//then z,x,y
 	for (i=0;i<P[1];i++) { //index cube along long axis
 		for (j=0;j<Ny;j++) { //1.
 			for (k=0;k<Nx;k++) { //2.
@@ -212,10 +239,11 @@ int main(int argc,char** argv)
 #ifdef FFT_LOCAL_TRANSPOSE
 	FFTW(execute)(p12);
 #else
-	FFTW(execute)(p11);
+	FFTW(execute)(p1);
 #endif
 	time_fft[m]+=MPI_Wtime()-time;
 	
+	//prepare alltoall. split 1 axes (z) into P[0] parts with size Nx 
 	time=MPI_Wtime();
 	for (i=0;i<P[0];i++) { //index cube along long axis
 		for (l=0;l<Ny;l++) { //3.
@@ -232,11 +260,13 @@ int main(int argc,char** argv)
 #ifdef FFT_MPI_TRANSPOSE
     FFTW(execute)(mpip2);
 #else
-	MPI_Alltoall(lin,Nx*Nx*Ny*sizeof(type)/sizeof(float),MPI_FLOAT,lin2,Nx*Nx*Ny*sizeof(type)/sizeof(float),MPI_FLOAT,cart2);
+	MPI_Alltoall(lin,Nx*Nx*Ny*sizeof(type)/sizeof(rtype),MPI_RTYPE,lin2,Nx*Nx*Ny*sizeof(type)/sizeof(rtype),MPI_RTYPE,cart2);
 #endif
 	time_mpi2[m]=MPI_Wtime()-time;
 
 	time=MPI_Wtime();
+	//make z contiguous again and also transpose 1 and 2
+	//now x,z,y
 	for (i=0;i<P[0];i++) { //index cube along long axis
 		for (l=0;l<Ny;l++) { //3.
 			for (j=0;j<Nx;j++) { //1.
@@ -249,7 +279,7 @@ int main(int argc,char** argv)
 	time_local[m]+=MPI_Wtime()-time;
 
 	time=MPI_Wtime();
-	FFTW(execute)(p11);
+	FFTW(execute)(p1);
 	time_fft[m]+=MPI_Wtime()-time;
 	
 	if (m==0) {
@@ -262,14 +292,14 @@ int main(int argc,char** argv)
 			//print("tmp",tmp,N,2,ld);
 			//assert(test_equal(in,tmp,N*N*N,N,2,N2));
 			
-			for (i=0;i<N2*sizeof(type)/sizeof(float);i+=2) {//x
+			for (i=0;i<N2*sizeof(type)/sizeof(rtype);i+=2) {//x
 				for (j=0;j<Nx;j++) {//z
 					for (k=0;k<Ny;k++) {//y
 						for (l=0;l<2;l++) {
-	//						printf("%f %f ",((float*)lin2)[i+l+j*N*sizeof(type)/sizeof(float)+k*N*Nx*sizeof(type)/sizeof(float)],((float*)in)[i+l+(coor[1]*Nx+k)*N2*sizeof(type)/sizeof(float)+(coor[0]*Nx+j)*N*N2*sizeof(type)/sizeof(float)]);
-							assert(fabs(((float*)lin2)[i+l+j*N*sizeof(type)/sizeof(float)+k*N*Nx*sizeof(type)/sizeof(float)]-((float*)in)[i+l+(coor[1]*Ny+k)*N2*sizeof(type)/sizeof(float)+(coor[0]*Nx+j)*N*N2*sizeof(type)/sizeof(float)])<N*N*N*EPS);
+//							printf("%f %f ",((rtype*)lin2)[i+l+j*N*sizeof(type)/sizeof(rtype)+k*N*Nx*sizeof(type)/sizeof(rtype)],((rtype*)in)[i+l+(coor[1]*Nx+k)*N2*sizeof(type)/sizeof(rtype)+(coor[0]*Nx+j)*N*N2*sizeof(type)/sizeof(rtype)]);
+							assert(fabs(((rtype*)lin2)[i+l+j*N*sizeof(type)/sizeof(rtype)+k*N*Nx*sizeof(type)/sizeof(rtype)]-((rtype*)in)[i+l+(coor[1]*Ny+k)*N2*sizeof(type)/sizeof(rtype)+(coor[0]*Nx+j)*N*N2*sizeof(type)/sizeof(rtype)])<N*N*N*EPS);
 						}
-	//					printf("\n");
+//						printf("\n");
 					}
 				}
 			}
@@ -300,7 +330,7 @@ int main(int argc,char** argv)
 	}
 	
 
-	FFTW(destroy_plan)(p11);
+	FFTW(destroy_plan)(p1);
 #ifdef FFT_LOCAL_TRANSPOSE
 	FFTW(destroy_plan)(p12);
 #endif
