@@ -62,6 +62,23 @@ int lfactor(int z) {
 		if (z%i==0) return i;
 }
 
+//largest factor 
+int l2factor(int z) {  
+	int i;
+	for (i=z/2;;i--)
+		if (z%i==0) return i;
+}
+
+double max(double a, double b) {
+	return (a>b)?a:b;
+}
+//largest prime factor: WARNING: slow recursion
+int lpfactor(int z) {
+	int f = l2factor(z);
+	if (f==1) return z;
+	return max(lpfactor(f),lpfactor(z/f));
+}
+
 void avg(double* d, int n) { //avg excluding first
 	int i;
 	d[0]=0;
@@ -75,6 +92,12 @@ void avg(double* d, int n) { //avg excluding first
 		}
 	d[0]*=1000;
 	d[1]=1000000 * d[1]/(n-1);
+}
+
+
+
+inline double min(double a, double b) {
+	return (a<b)?a:b;
 }
 
 int main(int argc,char** argv)
@@ -95,32 +118,40 @@ int main(int argc,char** argv)
 	case 2:
 		N=atoi(argv[1]);
 	}
-	int P[] = {P0,size/P0}; //per proc 4*4*4 or 8*4*2
-	int Nx=N/P[0];
-	int My=M/P[1];
-	int Kx=K/P[0],Ky=K/P[1];
-	
-	int i,l,coor[2],x,y,z;
-	type *in;
-
-	
-#ifdef PFFT_COMPLEX
-	int N2=2*(N/2+1);
-#else
-	int N2=N;
-#endif
-	
-	if (prank==0) printf("N: %d, M: %d, K: %d, P: %dx%d\n",N,M,K,P[0],P[1]);
-
-	if (N%P[0]!=0 || N%P[1]!=0) {
-		if (prank==0) printf("N needs to be dividible by the processor grid dimensions\n");
+	if (P0==0 || size%P0!=0) {
+		if (prank==0) printf("FATAL: Number of processors %d not evenly dividable by %d\n",size,P0);
 		MPI_Finalize();
 		return 1;
 	}
+	int P[] = {P0,size/P0}; //per proc 4*4*4 or 8*4*2
+
+
 	
-	FFTW(plan) p11,p12,p13,p2;
-	 
-	//MPI_Comm_rank(MPI_COMM_WORLD,&rank);
+	if (prank==0) {
+		printf("N: %d, M: %d, K: %d, P: %dx%d\n",N,M,K,P[0],P[1]);
+		if (max(max(lpfactor(N),lpfactor(M)),lpfactor(K))>7) {
+			printf("WARNING: FFT very slow with prime factors larger 7\n");
+			printf("Change FFT size or in case you cannot change it look at\n");
+			printf("http://www.fftw.org/fftw3_doc/Generating-your-own-code.html\n");
+		}
+	}
+	
+	if (N==0 || M==0 || K==0) {
+		if (prank==0) printf("FATAL: Datasize cannot be zero in any dimension\n");
+		MPI_Finalize();
+		return 1;
+	}
+
+#ifdef PFFT_COMPLEX
+	int rM = M;
+	M = M/2+1;
+#endif
+	int Nx=ceil((double)N/P[0]);
+	int My=ceil((double)M/P[1]);
+	int Kx=ceil((double)K/P[0]),Ky=ceil((double)K/P[1]);
+	
+	int i,l,coor[2],x,y,z;
+	
 	int wrap[]={0,0};
 	MPI_Comm cart;
 	MPI_Cart_create(MPI_COMM_WORLD,2,P,wrap,1,&cart); //true: reorder
@@ -131,16 +162,23 @@ int main(int argc,char** argv)
 	MPI_Cart_sub(cart, rdim2 , &cart2);
 	
 
-	in = (type*) FFTW(malloc)(sizeof(type) * N2*M*K);
+	type* in = (type*) FFTW(malloc)(sizeof(type) * N*M*K);
 
+	
+	int lsize = max(Nx*My*Ky*P[1],Nx*My*Kx*P[0]);
+	type *lin = (type*)FFTW(malloc)(sizeof(type) * lsize); //local in
+	type *lin2 = (type*)FFTW(malloc)(sizeof(type) * lsize); //local in
 
-	//muss aufgerundet werden zu groessetem wenn nicht teilbar
-	type *lin = (type*)FFTW(malloc)(sizeof(type) * M*Nx*Ky); //local in
-	type *lin2 = (type*)FFTW(malloc)(sizeof(type) * M*Nx*Ky); //local in
-
+	FFTW(plan) p11,p12,p13,p2;
+#ifdef PFFT_COMPLEX
+	p2 = FFTW(plan_dft_r2c_3d)(K, M, N, (rtype*)in, (FFTW(complex)*)in, FFTW_ESTIMATE);
+	p11 = FFTW(plan_many_dft_r2c)(1, &rM, Nx*Ky,   (rtype*)lin, &rM, 1,   rM, 
+			(FFTW(complex)*)lin2, &M, 1,   M, FFTW_MEASURE|FFTW_DESTROY_INPUT);//prod: FFTW_MEASURE
+#else
 	p2 = FFTW(plan_dft_3d)(K, M, N, (FFTW(complex)*)in, (FFTW(complex)*)in, FFTW_FORWARD, FFTW_ESTIMATE);
 	p11 = FFTW(plan_many_dft)(1, &M, Nx*Ky,   (FFTW(complex)*)lin, &M, 1,   M, 
 			(FFTW(complex)*)lin2, &M, 1,   M, FFTW_FORWARD, FFTW_MEASURE|FFTW_DESTROY_INPUT);//prod: FFTW_MEASURE
+#endif
 	p12 = FFTW(plan_many_dft)(1, &K, Nx*My,   (FFTW(complex)*)lin, &K, 1,   K, 
 			(FFTW(complex)*)lin2, &K, 1,   K, FFTW_FORWARD, FFTW_MEASURE|FFTW_DESTROY_INPUT);//prod: FFTW_MEASURE
 	p13 = FFTW(plan_many_dft)(1, &N, Kx*My,   (FFTW(complex)*)lin, &N, 1,   N, 
@@ -158,7 +196,7 @@ int main(int argc,char** argv)
 //	FFTW(plan) mpip1 = FFTW(mpi_plan_many_transpose)(P[1], N, Nx*Ny*2, 1, Ny, (rtype*)lin, (rtype*)lin2, cart1, FFTW_MEASURE|FFTW_MPI_TRANSPOSED_OUT);
 //	FFTW(plan) mpip2 = FFTW(mpi_plan_many_transpose)(P[0], N, Nx*Ny*2, 1, Nx, (rtype*)lin, (rtype*)lin2, cart2, FFTW_MEASURE|FFTW_MPI_TRANSPOSED_OUT);//|FFTW_MPI_TRANSPOSED_IN);
 #endif
-	init_random((rtype*)in,N2*M*K*sizeof(type)/sizeof(rtype),1,1);
+	init_random((rtype*)in,N*M*K*sizeof(type)/sizeof(rtype),1,1);
 	
 #ifdef DEBUG2
 	if (prank==0) {
@@ -174,11 +212,11 @@ int main(int argc,char** argv)
 #endif
 	
 	for(y=0;y<M;y++) {  //y i
-		for (x=0;x<Nx;x++) { //x j
-			for (z=0;z<Ky;z++) { //z k
-				//lin[i]=in[i+coor[0]*N2+coor[1]*N2*N];  //in[Px][i][Pz]
+		for (x=0;x<min(Nx,N-coor[0]*Nx);x++) { //x j  2nd of min for non dividable
+			for (z=0;z<min(Ky,K-coor[1]*Ky);z++) { //z k
+				//lin[i]=in[i+coor[0]*N+coor[1]*N*N];  //in[Px][i][Pz]
 				lin[y+x*M+z*M*Nx]=in[(coor[0]*Nx+x)+y*N+(coor[1]*Ky+z)*M*N];  //in[Px][i][Pz]
-				//lin[i*2+1]=in[coor[0]*2+1+i*N2+coor[1]*N2*N]; //imaginary part
+				//lin[i*2+1]=in[coor[0]*2+1+i*N+coor[1]*N*N]; //imaginary part
 			}
 		}
 	}
@@ -226,7 +264,7 @@ int main(int argc,char** argv)
 	for (i=0;i<P[1];i++) { //index cube along long axis
 		for (z=0;z<Ky;z++) { //3. z l
 			for (x=0;x<Nx;x++) { //2. x k
-				for (y=0;y<My;y++) { //1. y j
+				for (y=0;y<min(My,M-My*i);y++) { //1. y j
 					lin[y+x*My+z*Nx*My+i*Nx*My*Ky]=lin2[(i*My+y)+x*M+z*M*Nx];
 				}
 			}
@@ -268,7 +306,7 @@ int main(int argc,char** argv)
 	for (i=0;i<P[1];i++) { //index cube along long axis
 		for (y=0;y<My;y++) { //1.j
 			for (x=0;x<Nx;x++) { //2.k
-				for (z=0;z<Ky;z++) { //3.l
+				for (z=0;z<min(Ky,K-Ky*i);z++) { //3.l
 					lin[(i*Ky+z)+x*K+y*K*Nx]=lin2[y+x*My+z*Nx*My+i*Nx*My*Ky];
 				}
 			}
@@ -315,7 +353,7 @@ int main(int argc,char** argv)
 	for (i=0;i<P[0];i++) { //index cube along long axis
 		for (y=0;y<My;y++) { //3.y l 
 			for (x=0;x<Nx;x++) { //2.x k
-				for (z=0;z<Kx;z++) { //1.z j
+				for (z=0;z<min(Kx,K-Kx*i);z++) { //1.z j
 					lin[z+x*Kx+y*Nx*Kx+i*Nx*Kx*My]=lin2[(i*Kx+z)+x*K+y*K*Nx];
 				}
 			}
@@ -339,7 +377,7 @@ int main(int argc,char** argv)
 	for (i=0;i<P[0];i++) { //index cube along long axis
 		for (y=0;y<My;y++) { //3. y l
 			for (z=0;z<Kx;z++) { //1. z j
-				for (x=0;x<Nx;x++) { //2. x k
+				for (x=0;x<min(Nx,N-Nx*i);x++) { //2. x k
 					lin[(i*Nx+x)+z*N+y*N*Kx]=lin2[z+x*Kx+y*Nx*Kx+i*Nx*Kx*My];
 				}
 			}
@@ -407,16 +445,16 @@ int main(int argc,char** argv)
 #endif
 			//print("in",in,N,2,ld);
 			//print("tmp",tmp,N,2,ld);
-			//assert(test_equal(in,tmp,N*N*N,N,2,N2));
+			//assert(test_equal(in,tmp,N*N*N,N,2,N));
 			
-			for (x=0;x<N2;x++) {//x i
-				for (z=0;z<Kx;z++) {//z j
-					for (y=0;y<My;y++) {//y k
+			for (x=0;x<N;x++) {//x i
+				for (z=0;z<min(Kx,K-Kx*coor[0]);z++) {//z j
+					for (y=0;y<min(My,M-My*coor[1]);y++) {//y k
 						for (l=0;l<2;l++) {
 //							printf("%f %f ",((rtype*)lin2)[(x+z*N+y*N*Kx)*sizeof(type)/sizeof(rtype)+l],
-//									((rtype*)in)[(x+(coor[1]*My+y)*N2+(coor[0]*Kx+z)*N*M)*sizeof(type)/sizeof(rtype)+l]);
+//									((rtype*)in)[(x+(coor[1]*My+y)*N+(coor[0]*Kx+z)*N*M)*sizeof(type)/sizeof(rtype)+l]);
 							assert(fabs(((rtype*)lin2)[x+l+z*N*sizeof(type)/sizeof(rtype)+y*N*Kx*sizeof(type)/sizeof(rtype)]-
-									((rtype*)in)[x+l+(coor[1]*My+y)*N2*sizeof(type)/sizeof(rtype)+(coor[0]*Kx+z)*N*M*sizeof(type)/sizeof(rtype)])<N*M*K*EPS);
+									((rtype*)in)[x+l+(coor[1]*My+y)*N*sizeof(type)/sizeof(rtype)+(coor[0]*Kx+z)*N*M*sizeof(type)/sizeof(rtype)])<N*M*K*EPS);
 						}
 //						printf("\n");
 					}
@@ -438,9 +476,9 @@ int main(int argc,char** argv)
 	//printf("avg: %lf\n",time_mpi1[0]);
 	
 	double times[]={time_local[0],time_fft[0],time_mpi1[0],time_mpi2[0],
-					time_local[1],time_fft[1],time_mpi1[1],time_mpi2[1]},otimes[8];
+					time_local[1],time_fft[1],time_mpi1[1],time_mpi2[1]},otimes[sizeof(times)/sizeof(double)];
 	
-	MPI_Reduce(times,otimes,8,MPI_DOUBLE,MPI_SUM,0,MPI_COMM_WORLD);
+	MPI_Reduce(times,otimes,sizeof(times)/sizeof(double),MPI_DOUBLE,MPI_SUM,0,MPI_COMM_WORLD);
 	
 	if(prank==0) {
 		printf("Timing (ms): local: %lf+/-%lf, fft: %lf+/-%lf, mpi1: %lf+/-%lf, mpi2:%lf+/-%lf\n",
@@ -453,9 +491,8 @@ int main(int argc,char** argv)
 
 	FFTW(destroy_plan)(p11);
 	FFTW(destroy_plan)(p12);
-#ifdef FFT_LOCAL_TRANSPOSE
-	FFTW(destroy_plan)(p12);
-#endif
+	FFTW(destroy_plan)(p13);
+	
 	FFTW(destroy_plan)(p2);
 #ifdef FFT_MPI_TRANSPOSE
 	FFTW(destroy_plan)(mpip1);
