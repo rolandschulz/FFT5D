@@ -120,12 +120,7 @@ pfft_plan pfft_plan_3d(int N, int M, int K, MPI_Comm comm, int P0, int direction
 	p13 = FFTW(plan_many_dft)(1, &M, K0*N1,   (FFTW(complex)*)lin, &M, 1,   M, 
 			(FFTW(complex)*)lin2, &M, 1,   M, direction, FFTW_MEASURE|FFTW_DESTROY_INPUT);//prod: FFTW_MEASURE
 			
-	
-#ifdef FFT_LOCAL_TRANSPOSE
-	FFTW(plan) p12 = FFTW(plan_many_dft)(1, &N, N1*M0,   (FFTW(complex)*)lin, &N, N1*M0,   1, 
-														 (FFTW(complex)*)lin2, &N, 1,   N, direction, FFTW_MEASURE|FFTW_DESTROY_INPUT);//prod: FFTW_MEASURE
-#endif
-	
+		
 #ifdef FFT_MPI_TRANSPOSE
 	FFTW(plan) mpip1 = FFTW(mpi_plan_many_transpose)(P[1], P[1], N1*K1*M0*2, 1, 1, (rtype*)lin, (rtype*)lin2, cart1, FFTW_MEASURE);
 	FFTW(plan) mpip2 = FFTW(mpi_plan_many_transpose)(P[0], P[0], N1*M0*K0*2, 1, 1, (rtype*)lin, (rtype*)lin2, cart2, FFTW_MEASURE);
@@ -246,17 +241,6 @@ void pfft_execute(pfft_plan plan,pfft_time times) {
 
 	
 	time=MPI_Wtime();
-#ifdef FFT_LOCAL_TRANSPOSE
-	for (i=0;i<P[1];i++) { //index cube along long axis
-		for (l=0;l<M0;l++) { //3.
-			for (j=0;j<M0;j++) { //1.
-				for (k=0;k<M0;k++) { //2.
-					lin[k+j*M0+l*M0*M0+i*M0*M0*M0]=lin2[j+k*M0+l*M0*M0+i*M0*M0*M0];
-				}
-			}
-		}
-	}	
-#else
 	
 	//bring back in matrix form (could be avoided by storing blocks as eleftheriou)
 	//thus make z ( 1. axes) again contiguos
@@ -271,17 +255,12 @@ void pfft_execute(pfft_plan plan,pfft_time times) {
 			}
 		}
 	}	
-#endif
 	time_local+=MPI_Wtime()-time;
 
 	print_localdata(lin, "%d %d: transposed x-z\n", N1, M0, K, ZYX, coor);
 	
 	time=MPI_Wtime();
-#ifdef FFT_LOCAL_TRANSPOSE
 	FFTW(execute)(p12);
-#else
-	FFTW(execute)(p12);
-#endif
 	time_fft+=MPI_Wtime()-time;
 	
 	print_localdata(lin2, "%d %d: FFT in z\n", N1, M0, K, ZYX, coor);
