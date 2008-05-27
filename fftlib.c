@@ -153,6 +153,38 @@ pfft_plan pfft_plan_3d(int N, int M, int K, MPI_Comm comm, int P0, int direction
 	return plan;
 }
 
+enum order {
+	XYZ,
+	XZY,
+	YXZ,
+	YZX,
+	ZXY,
+	ZYX
+};
+
+void print_localdata(const type* lin, const char* txt, int N,int M,int K, enum order o, const int* coor) {
+#ifdef DEBUG2
+	int xo,yo,zo,x,y,z;
+	switch (o) {
+	case XYZ:xo=1  ;yo=N  ;zo=N*M;break;
+	case XZY:xo=1  ;yo=N*K;zo=N  ;break;
+	case YXZ:xo=M  ;yo=1  ;zo=N*M;break;
+	case YZX:xo=M*K;yo=1  ;zo=M  ;break;
+	case ZXY:xo=K  ;yo=N*K;zo=1  ;break;
+	case ZYX:xo=M*K;yo=K  ;zo=1  ;break;
+	}
+	printf(txt,coor[0],coor[1]);
+	for (z=0;z<K;z++) {
+		for(y=0;y<M;y++) {
+			printf("%d %d: ",coor[0],coor[1]);
+			for (x=0;x<N;x++) {
+				printf("%f ",((rtype*)lin)[(z*zo+y*yo+x*xo)*2]);
+			}
+			printf("\n");
+		}
+	}
+#endif
+}
 
 void pfft_execute(pfft_plan plan,pfft_time times) {
 	type *lin = plan->lin;
@@ -172,17 +204,10 @@ void pfft_execute(pfft_plan plan,pfft_time times) {
 	
 #ifdef DEBUG2
 	int *coor = plan->coor;
-	printf("%d %d: copy in lin\n",coor[0],coor[1]);
-	for (z=0;z<K1;z++) {
-		for(y=0;y<M0;y++) {
-			printf("%d %d: ",coor[0],coor[1]);
-			for (x=0;x<N;x++) {
-				printf("%f+%fi ",((rtype*)lin)[(x+y*N+z*M0*N)*2],((rtype*)lin)[(x+y*N+z*M0*N)*2+1]);
-			}
-			printf("\n");
-		}
-	}
 #endif
+	
+	print_localdata(lin, "%d %d: copy in lin\n", N, M0, K1, XYZ, coor);
+
 
 	//lin: x,y,z
 	
@@ -190,18 +215,7 @@ void pfft_execute(pfft_plan plan,pfft_time times) {
 	FFTW(execute)(p11); //in:lin out:lin2
 	time_fft=MPI_Wtime()-time;
 
-#ifdef DEBUG2
-	printf("%d %d: FFT in x\n",coor[0],coor[1]);
-	for (z=0;z<K1;z++) {
-		for(y=0;y<M0;y++) {
-			printf("%d %d: ",coor[0],coor[1]);
-			for (x=0;x<N;x++) {
-				printf("%f+%fi ",((rtype*)lin2)[(x+y*N+z*M0*N)*2],((rtype*)lin2)[(x+y*N+z*M0*N)*2+1]);
-			}
-			printf("\n");
-		}
-	}
-#endif
+	print_localdata(lin2, "%d %d: FFT in x\n", N, M0, K1, XYZ, coor);
 	
 	time=MPI_Wtime(); 
 	//prepare for AllToAll
@@ -260,18 +274,7 @@ void pfft_execute(pfft_plan plan,pfft_time times) {
 #endif
 	time_local+=MPI_Wtime()-time;
 
-#ifdef DEBUG2
-	printf("%d %d: transposed x-z\n",coor[0],coor[1]);
-	for (z=0;z<K;z++) {
-		for(y=0;y<M0;y++) {
-			printf("%d %d: ",coor[0],coor[1]);
-			for (x=0;x<N1;x++) {
-				printf("%f ",((rtype*)lin)[(z+y*K+x*M0*K)*2]);
-			}
-			printf("\n");
-		}
-	}
-#endif
+	print_localdata(lin, "%d %d: transposed x-z\n", N1, M0, K, ZYX, coor);
 	
 	time=MPI_Wtime();
 #ifdef FFT_LOCAL_TRANSPOSE
@@ -281,18 +284,8 @@ void pfft_execute(pfft_plan plan,pfft_time times) {
 #endif
 	time_fft+=MPI_Wtime()-time;
 	
-#ifdef DEBUG2
-	printf("%d %d: FFT in z\n",coor[0],coor[1]);
-	for (z=0;z<K;z++) {
-		for(y=0;y<M0;y++) {
-				printf("%d %d: ",coor[0],coor[1]);
-				for (x=0;x<N1;x++) {
-					printf("%f ",((rtype*)lin2)[(z+y*K+x*M0*K)*2]);
-				}
-				printf("\n");
-			}
-	}
-#endif
+	print_localdata(lin2, "%d %d: FFT in z\n", N1, M0, K, ZYX, coor);
+	
 	//prepare alltoall. split 1 axes (z) into P[0] parts with size M0 
 	time=MPI_Wtime();
 	for (i=0;i<P[0];i++) { //index cube along long axis
@@ -330,38 +323,20 @@ void pfft_execute(pfft_plan plan,pfft_time times) {
 	}
 	time_local+=MPI_Wtime()-time;
 
-#ifdef DEBUG2
-	printf("%d %d: transposed y-z\n",coor[0],coor[1]);
-	for (z=0;z<K0;z++) {
-		for(y=0;y<M;y++) {
-				printf("%d %d: ",coor[0],coor[1]);
-				for (x=0;x<N1;x++) {
-					printf("%f ",((rtype*)lin)[(y+z*M+x*M*K0)*2]);
-				}
-				printf("\n");
-			}
-	}
-#endif	
+	print_localdata(lin, "%d %d: transposed y-z\n", N1, M, K0, YZX, coor);
+
 	time=MPI_Wtime();
 	FFTW(execute)(p13);
 	time_fft+=MPI_Wtime()-time;
 
-#ifdef DEBUG2
-	printf("%d %d: FFT in y\n",coor[0],coor[1]);
-	for (z=0;z<K0;z++) {
-		for(y=0;y<M;y++) {
-					printf("%d %d: ",coor[0],coor[1]);
-					for (x=0;x<N1;x++) {
-						printf("%f ",((rtype*)lin2)[(y+z*M+x*M*K0)*2]);
-					}
-					printf("\n");
-				}
-		}
-#endif
-	times->fft=time_fft;
-	times->local=time_local;
-	times->mpi2=time_mpi1;
-	times->mpi1=time_mpi2;
+	print_localdata(lin2, "%d %d: FFT in y\n", N1, M, K0, YZX, coor);
+	
+	if (times!=0) {
+		times->fft=time_fft;
+		times->local=time_local;
+		times->mpi2=time_mpi1;
+		times->mpi1=time_mpi2;
+	}
 }
 
 void pfft_destroy(pfft_plan plan) {
