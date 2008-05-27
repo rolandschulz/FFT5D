@@ -157,6 +157,48 @@ enum order {
 	ZYX
 };
 
+//here x,y,z and N,M,K is in rotated coordinate system!!
+//x (and N) is consecutive index
+//N,M,K is local portion!
+void splitaxes(type* lin,const type* lin2,int N,int M,int K,int P,int NP) {
+	int x,y,z,i;
+	for (i=0;i<P;i++) { //index cube along long axis
+		for (z=0;z<K;z++) { //3. z l
+			for (y=0;y<M;y++) { //2. y k
+				for (x=0;x<fmin(N,NP-N*i);x++) { //1. x j
+					lin[x+y*N+z*M*N+i*M*N*K]=lin2[(i*N+x)+y*NP+z*NP*M];
+				}
+			}
+		}
+	}
+}
+
+void joinaxesTrans13(type* lin,const type* lin2,int N1,int M0,int K1,int P,int K) {
+	int i,x,y,z;
+	for (i=0;i<P;i++) { //index cube along long axis
+		for (x=0;x<N1;x++) { //1.j
+			for (z=0;z<fmin(K1,K-K1*i);z++) { //3.l
+				for (y=0;y<M0;y++) { //2.k
+					lin[(i*K1+z)+y*K+x*K*M0]=lin2[x+y*N1+z*M0*N1+i*M0*N1*K1];
+				}
+			}
+		}
+	}
+}
+
+void joinAxesTrans12(type* lin,const type* lin2,int N0,int M0,int K1,int P,int M) {
+	int i,x,y,z;
+	for (i=0;i<P;i++) { //index cube along long axis
+		for (x=0;x<K1;x++) { //3. x l
+			for (z=0;z<N0;z++) { //1. z j
+				for (y=0;y<fmin(M0,M-M0*i);y++) { //2. y k
+					lin[(i*M0+y)+z*M+x*M*N0]=lin2[z+y*N0+x*M0*N0+i*M0*N0*K1];
+				}
+			}
+		}
+	}
+}
+
 void print_localdata(const type* lin, const char* txt, int N,int M,int K, enum order o, const int* coor) {
 #ifdef DEBUG2
 	int xo,yo,zo,x,y,z;
@@ -193,16 +235,10 @@ void pfft_execute(pfft_plan plan,pfft_time times) {
 	int N1=plan->N1,M0=plan->M0,K0=plan->K0,K1=plan->K1;
 	int N=plan->N,M=plan->M,K=plan->K;
 	int *P = plan->P;
-	
-	double time_fft=0,time_local=0,time_mpi1=0,time_mpi2=0,time;
-	int i,z,y,x;
-	
-#ifdef DEBUG2
+	double time_fft=0,time_local=0,time_mpi1=0,time_mpi2=0,time;	
 	int *coor = plan->coor;
-#endif
 	
 	print_localdata(lin, "%d %d: copy in lin\n", N, M0, K1, XYZ, coor);
-
 
 	//lin: x,y,z
 	
@@ -215,22 +251,11 @@ void pfft_execute(pfft_plan plan,pfft_time times) {
 	time=MPI_Wtime(); 
 	//prepare for AllToAll
 	//1. (most outer) axes (x) is split into P[1] parts of size M0 for sending 
-	for (i=0;i<P[1];i++) { //index cube along long axis
-		for (z=0;z<K1;z++) { //3. z l
-			for (y=0;y<M0;y++) { //2. y k
-				for (x=0;x<fmin(N1,N-N1*i);x++) { //1. x j
-					lin[x+y*N1+z*M0*N1+i*M0*N1*K1]=lin2[(i*N1+x)+y*N+z*N*M0];
-				}
-			}
-		}
-	}
+	splitaxes(lin,lin2,N1,M0,K1,P[1],N);
 	time_local=MPI_Wtime()-time;
 	
-	
-
 	//send, recv
 	time=MPI_Wtime();
-
 #ifdef FFT_MPI_TRANSPOSE
     FFTW(execute)(mpip1);
 #else
@@ -238,23 +263,12 @@ void pfft_execute(pfft_plan plan,pfft_time times) {
 #endif
 	time_mpi1=MPI_Wtime()-time;
 
-
-	
 	time=MPI_Wtime();
-	
-	//bring back in matrix form (could be avoided by storing blocks as eleftheriou)
+	//bring back in matrix form (could be avoided by storing blocks as eleftheriou, really?)
 	//thus make z ( 1. axes) again contiguos
 	//also local transpose 1 and 3 
 	//then z,y,x
-	for (i=0;i<P[1];i++) { //index cube along long axis
-		for (x=0;x<N1;x++) { //1.j
-			for (y=0;y<M0;y++) { //2.k
-				for (z=0;z<fmin(K1,K-K1*i);z++) { //3.l
-					lin[(i*K1+z)+y*K+x*K*M0]=lin2[x+y*N1+z*M0*N1+i*M0*N1*K1];
-				}
-			}
-		}
-	}	
+	joinaxesTrans13(lin,lin2,N1,M0,K1,P[1],K);
 	time_local+=MPI_Wtime()-time;
 
 	print_localdata(lin, "%d %d: transposed x-z\n", N1, M0, K, ZYX, coor);
@@ -265,18 +279,9 @@ void pfft_execute(pfft_plan plan,pfft_time times) {
 	
 	print_localdata(lin2, "%d %d: FFT in z\n", N1, M0, K, ZYX, coor);
 	
-	//prepare alltoall. split 1 axes (z) into P[0] parts with size M0 
+	//prepare alltoall. split 1 axes (z) into P[0] parts with size K0 
 	time=MPI_Wtime();
-	for (i=0;i<P[0];i++) { //index cube along long axis
-		for (x=0;x<N1;x++) { //3.x l 
-			for (y=0;y<M0;y++) { //2.y k
-				for (z=0;z<fmin(K0,K-K0*i);z++) { //1.z j
-					lin[z+y*K0+x*M0*K0+i*M0*K0*N1]=lin2[(i*K0+z)+y*K+x*K*M0];
-				}
-			}
-		}
-	}
-	
+	splitaxes(lin,lin2,K0,M0,N1,P[0],K);	
 	time_local+=MPI_Wtime()-time;
 
 	time=MPI_Wtime();
@@ -290,16 +295,7 @@ void pfft_execute(pfft_plan plan,pfft_time times) {
 	time=MPI_Wtime();
 	//make y contiguous  and also transpose 1 and 2
 	//now y,z,x
-
-	for (i=0;i<P[0];i++) { //index cube along long axis
-		for (x=0;x<N1;x++) { //3. x l
-			for (z=0;z<K0;z++) { //1. z j
-				for (y=0;y<fmin(M0,M-M0*i);y++) { //2. y k
-					lin[(i*M0+y)+z*M+x*M*K0]=lin2[z+y*K0+x*M0*K0+i*M0*K0*N1];
-				}
-			}
-		}
-	}
+	joinAxesTrans12(lin,lin2,K0,M0,N1,P[0],M);
 	time_local+=MPI_Wtime()-time;
 
 	print_localdata(lin, "%d %d: transposed y-z\n", N1, M, K0, YZX, coor);
