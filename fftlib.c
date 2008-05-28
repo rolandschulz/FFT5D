@@ -74,10 +74,13 @@ pfft_plan pfft_plan_3d(int N, int M, int K, MPI_Comm comm, int P0, int direction
 		return 0;
 	}
 
-	int rN=N;
+	int rN=N,rM=M;
 	if (realcomplex) {
-		N = N/2+1;
+		if (direction==-1) N = N/2+1;
+		else M=M/2+1;
 	}
+	
+	
 	int N1=ceil((double)N/P[1]);
 	int M0=ceil((double)M/P[0]);
 	int K0=ceil((double)K/P[0]),K1=ceil((double)K/P[1]);
@@ -103,23 +106,26 @@ pfft_plan pfft_plan_3d(int N, int M, int K, MPI_Comm comm, int P0, int direction
 	type* lin2 = (type*)FFTW(malloc)(sizeof(type) * lsize); //local in
 	
 	FFTW(plan) p11,p12,p13;
-	if (realcomplex) {
-		if (direction==-1) {
-			p11 = FFTW(plan_many_dft_r2c)(1, &rN, M0*K1,   (rtype*)lin, &rN, 1,   N*2, 
+	if (realcomplex && direction==-1) {
+		p11 = FFTW(plan_many_dft_r2c)(1, &rN, M0*K1,   (rtype*)lin, &rN, 1,   N*2, 
 					(FFTW(complex)*)lin2, &N, 1,   N, FFTW_MEASURE|FFTW_DESTROY_INPUT);//prod: FFTW_MEASURE
-		} else {
-			p11 = FFTW(plan_many_dft_c2r)(1, &rN, M0*K1,   (FFTW(complex)*)lin, &rN, 1,   N*2, 
-								(rtype*)lin2, &N, 1,   N, FFTW_MEASURE|FFTW_DESTROY_INPUT);//prod: FFTW_MEASURE
-		}
+//		} else {
+//			p11 = FFTW(plan_many_dft_c2r)(1, &rN, M0*K1,   (FFTW(complex)*)lin, &rN, 1,   N*2, 
+//								(rtype*)lin2, &N, 1,   N, FFTW_MEASURE|FFTW_DESTROY_INPUT);//prod: FFTW_MEASURE
+//		}
 	} else {
 		p11 = FFTW(plan_many_dft)(1, &N, M0*K1,   (FFTW(complex)*)lin, &N, 1,   N, 
 				(FFTW(complex)*)lin2, &N, 1,   N, direction, FFTW_MEASURE|FFTW_DESTROY_INPUT);//prod: FFTW_MEASURE
 	}
 	p12 = FFTW(plan_many_dft)(1, &K, N1*M0,   (FFTW(complex)*)lin, &K, 1,   K, 
 			(FFTW(complex)*)lin2, &K, 1,   K, direction, FFTW_MEASURE|FFTW_DESTROY_INPUT);//prod: FFTW_MEASURE
-	p13 = FFTW(plan_many_dft)(1, &M, K0*N1,   (FFTW(complex)*)lin, &M, 1,   M, 
-			(FFTW(complex)*)lin2, &M, 1,   M, direction, FFTW_MEASURE|FFTW_DESTROY_INPUT);//prod: FFTW_MEASURE
-			
+	if (realcomplex && direction==1) {
+		p13 = FFTW(plan_many_dft_c2r)(1, &rM, K0*N1,   (FFTW(complex)*)lin, &M, 1,   M, 
+				(rtype*)lin2, &rM, 1,   M*2, FFTW_MEASURE|FFTW_DESTROY_INPUT);//prod: FFTW_MEASURE
+	} else {
+		p13 = FFTW(plan_many_dft)(1, &M, K0*N1,   (FFTW(complex)*)lin, &M, 1,   M, 
+					(FFTW(complex)*)lin2, &M, 1,   M, direction, FFTW_MEASURE|FFTW_DESTROY_INPUT);//prod: FFTW_MEASURE
+	}
 		
 #ifdef FFT_MPI_TRANSPOSE
 	FFTW(plan) mpip1 = FFTW(mpi_plan_many_transpose)(P[1], P[1], N1*K1*M0*2, 1, 1, (rtype*)lin, (rtype*)lin2, cart1, FFTW_MEASURE);
@@ -215,7 +221,7 @@ void print_localdata(const type* lin, const char* txt, int N,int M,int K, enum o
 		for(y=0;y<M;y++) {
 			printf("%d %d: ",coor[0],coor[1]);
 			for (x=0;x<N;x++) {
-				printf("%f ",((rtype*)lin)[(z*zo+y*yo+x*xo)*2]);
+				printf("%f+%fi ",((rtype*)lin)[(z*zo+y*yo+x*xo)*2],((rtype*)lin)[(z*zo+y*yo+x*xo)*2+1]);
 			}
 			printf("\n");
 		}

@@ -98,8 +98,16 @@ int main(int argc,char** argv)
 	}
 
 	init_random((rtype*)in,N*M*K*sizeof(type)/sizeof(rtype),1,1);
-
+	
+	if (direction==1 && realcomplex==1) { //in[0][y][z] needs to be real (otherwise data not conjugate complex)
+		for (y=0;y<M;y++) {
+			for (z=0;z<K;z++) {
+				((rtype*)in)[(y*N+z*M*N)*2+1]=0;
+			}
+		}
+	}
 #ifdef DEBUG2
+	printf("Input data\n");
 	if (prank==0) {
 		for(z=0;z<K;z++) {
 			for (y=0;y<M;y++) {
@@ -113,15 +121,32 @@ int main(int argc,char** argv)
 #endif
 
 	type *lin,*lin2;
-	pfft_plan plan = pfft_plan_3d(N,M,K,MPI_COMM_WORLD,P0, direction, realcomplex,&lin,&lin2);
-	int N1,M0,K0,K1,*coor;
-	pfft_local_size(plan,&N1,&M0,&K0,&K1,&coor);
-	for(x=0;x<N;x++) {  //x i
-		for (y=0;y<fmin(M0,M-coor[0]*M0);y++) { //y j  2nd of fmin for non dividable
-			for (z=0;z<fmin(K1,K-coor[1]*K1);z++) { //z k
-				//lin[i]=in[i+coor[0]*M+coor[1]*M*M];  //in[Px][i][Pz]
-				lin[x+y*N+z*N*M0]=in[x+(coor[0]*M0+y)*N+(coor[1]*K1+z)*N*M];  //in[Px][i][Pz]
-				//lin[i*2+1]=in[coor[0]*2+1+i*M+coor[1]*M*M]; //imaginary part
+	int N1,N0,M1,M0,K0,K1,*coor;
+	pfft_plan plan;
+	if (direction==-1) {
+		plan = pfft_plan_3d(rN,M,K,MPI_COMM_WORLD,P0, direction, realcomplex,&lin,&lin2);
+		
+		pfft_local_size(plan,&N1,&M0,&K0,&K1,&coor);
+		for(x=0;x<N;x++) {  //x i
+			for (y=0;y<fmin(M0,M-coor[0]*M0);y++) { //y j  2nd of fmin for non dividable
+				for (z=0;z<fmin(K1,K-coor[1]*K1);z++) { //z k
+					//lin[i]=in[i+coor[0]*M+coor[1]*M*M];  //in[Px][i][Pz]
+					lin[x+y*N+z*N*M0]=in[x+(coor[0]*M0+y)*N+(coor[1]*K1+z)*N*M];  //in[Px][i][Pz]
+					//lin[i*2+1]=in[coor[0]*2+1+i*M+coor[1]*M*M]; //imaginary part
+				}
+			}
+		}
+	} else {
+		plan = pfft_plan_3d(K,rN,M,MPI_COMM_WORLD,P0, direction, realcomplex,&lin,&lin2);
+		
+		pfft_local_size(plan,&K1,&N0,&M0,&M1,&coor);
+		for(z=0;z<K;z++) {  //x i
+			for (x=0;x<fmin(N0,N-coor[0]*N0);x++) { //y j  2nd of fmin for non dividable
+				for (y=0;y<fmin(M1,M-coor[1]*M1);y++) { //z k
+					//lin[i]=in[i+coor[0]*M+coor[1]*M*M];  //in[Px][i][Pz]
+					lin[z+x*K+y*K*N0]=in[(x+coor[0]*N0)+(y+coor[1]*M1)*N+z*N*M];  //in[Px][i][Pz]
+					//lin[i*2+1]=in[coor[0]*2+1+i*M+coor[1]*M*M]; //imaginary part
+				}
 			}
 		}
 	}
@@ -143,11 +168,12 @@ int main(int argc,char** argv)
 				if (prank==0) printf("No correctness check above 128\n");
 			} else {
 #ifdef DEBUG2
+				printf("Input\n");
 				if (prank==0) {
 					for(z=0;z<K;z++) {
-						for (x=0;x<N;x++) {
-							for (y=0;y<M;y++) {				
-								printf("%f+%fi ",((rtype*)in)[(y+x*M+z*M*N)*2],((rtype*)in)[(y+x*M+z*M*N)*2+1]);
+						for (y=0;y<M;y++) {
+							for (x=0;x<N;x++) {				
+								printf("%f+%fi ",((rtype*)in)[(x+y*N+z*M*N)*2],((rtype*)in)[(x+y*N+z*M*N)*2+1]);
 							}
 							printf("\n");
 						}
@@ -156,11 +182,13 @@ int main(int argc,char** argv)
 #endif
 				FFTW(execute)(p2);
 #ifdef DEBUG2
+				
 				if (prank==0) {
+					printf("Result from FFTW\n");
 					for(z=0;z<K;z++) {
-						for (x=0;x<N;x++) {
-							for (y=0;y<M;y++) {				
-								printf("%f+%fi ",((rtype*)in)[(y+x*M+z*M*N)*2],((rtype*)in)[(y+x*M+z*M*N)*2+1]);
+						for (y=0;y<M;y++) {
+							for (x=0;x<N;x++) {				
+								printf("%f+%fi ",((rtype*)in)[(x+y*N+z*M*N)*2],((rtype*)in)[(x+y*N+z*M*N)*2+1]);
 							}
 							printf("\n");
 						}
@@ -170,26 +198,50 @@ int main(int argc,char** argv)
 				//print("in",in,N,2,ld);
 				//print("tmp",tmp,N,2,ld);
 				//assert(test_equal(in,tmp,N*N*N,N,2,N));
-
-				for (x=0;x<fmin(N1,N-N1*coor[1]);x++) {//x i
-					for (z=0;z<fmin(K0,K-K0*coor[0]);z++) {//z j
-						for (y=0;y<M;y++) {//y k
-							for (l=0;l<2;l++) {
+				if (prank==0) printf("Comparison\n");
+				if (direction==-1) {
+					for (x=0;x<fmin(N1,N-N1*coor[1]);x++) {//x i
+						for (z=0;z<fmin(K0,K-K0*coor[0]);z++) {//z j
+							for (y=0;y<M;y++) {//y k
+								for (l=0;l<2;l++) {
 #ifdef DEBUG2
-								printf("%f %f ",((rtype*)lin2)[(y+z*M+x*M*K0)*sizeof(type)/sizeof(rtype)+l],
-										((rtype*)in)[(x+coor[1]*N1+y*N+(coor[0]*K0+z)*N*M)*sizeof(type)/sizeof(rtype)+l]);
-							}
-							printf("\n");
-#else							
-							assert(fabs(((rtype*)lin2)[(y+z*M+x*M*K0)*sizeof(type)/sizeof(rtype)+l]-
-									((rtype*)in)[(coor[1]*N1+x+y*N+(coor[0]*K0+z)*N*M)*sizeof(type)/sizeof(rtype)+l])<N*M*K*EPS);
-							}
+									printf("%f %f ",((rtype*)lin2)[(y+z*M+x*M*K0)*sizeof(type)/sizeof(rtype)+l],
+											((rtype*)in)[(x+coor[1]*N1+y*N+(coor[0]*K0+z)*N*M)*sizeof(type)/sizeof(rtype)+l]);
+								}
+								printf("\n");
+#else
+									assert(fabs(((rtype*)lin2)[(y+z*M+x*M*K0)*sizeof(type)/sizeof(rtype)+l]-
+											((rtype*)in)[(coor[1]*N1+x+y*N+(coor[0]*K0+z)*N*M)*sizeof(type)/sizeof(rtype)+l])<N*M*K*EPS);
+									}
 #endif
+									
+								}
+							}
+						}
+				} else {
+					for (z=0;z<fmin(K1,K-K1*coor[1]);z++) {//x i
+						for (y=0;y<fmin(M0,M-M0*coor[0]);y++) {//z j
+							for (x=0;x<N;x++) {//y k
+								for (l=0;l<((realcomplex&&x==N-1)?1:2);l++) { //don't check padding field
+#ifdef DEBUG2
+									printf("%f,%f ",((rtype*)lin2)[(x+y*N+z*N*M0)*sizeof(type)/sizeof(rtype)+l],
+											((rtype*)in)[(x+(coor[0]*M0+y)*N+(coor[1]*K1+z)*N*M)*sizeof(type)/sizeof(rtype)+l]);
+								}
+							}
+							printf("\n");	
+																				
+			#else
+									assert(fabs(((rtype*)lin2)[(x+y*N+z*N*M0)*sizeof(type)/sizeof(rtype)+l]-
+											((rtype*)in)[(x+(coor[0]*M0+y)*N+(coor[1]*K1+z)*N*M)*sizeof(type)/sizeof(rtype)+l])<N*M*K*EPS);
+								}
+							}
+			#endif
+						
 						}
 					}
+					
 				}
-
-				if (prank==0) printf("OK\n");
+			if (prank==0) printf("OK\n");
 #ifdef DEBUG2
 			return 0;
 #endif
