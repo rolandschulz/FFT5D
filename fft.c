@@ -120,11 +120,11 @@ int main(int argc,char** argv)
 	}
 #endif
 
-	type *lin,*lin2;
+	type *lin,*lout;
 	int N1,N0,M1,M0,K0,K1,*coor;
 	pfft_plan plan;
 	if (direction==-1) {
-		plan = pfft_plan_3d(rN,M,K,MPI_COMM_WORLD,P0, direction, realcomplex,&lin,&lin2);
+		plan = pfft_plan_3d(rN,M,K,MPI_COMM_WORLD,P0, direction, realcomplex,0, &lin,&lout);
 		
 		pfft_local_size(plan,&N1,&M0,&K0,&K1,&coor);
 		for(x=0;x<N;x++) {  //x i
@@ -137,7 +137,7 @@ int main(int argc,char** argv)
 			}
 		}
 	} else {
-		plan = pfft_plan_3d(K,rN,M,MPI_COMM_WORLD,P0, direction, realcomplex,&lin,&lin2);
+		plan = pfft_plan_3d(K,rN,M,MPI_COMM_WORLD,P0, direction, realcomplex,0,&lin,&lout);
 		
 		pfft_local_size(plan,&K1,&N0,&M0,&M1,&coor);
 		for(z=0;z<K;z++) {  //x i
@@ -185,7 +185,7 @@ int main(int argc,char** argv)
 				
 				if (prank==0) {
 					printf("Result from FFTW\n");
-					for(z=0;z<K;z++) {
+					for(z=0;z<K;z++) {input:
 						for (y=0;y<M;y++) {
 							for (x=0;x<N;x++) {				
 								printf("%f+%fi ",((rtype*)in)[(x+y*N+z*M*N)*2],((rtype*)in)[(x+y*N+z*M*N)*2+1]);
@@ -205,13 +205,13 @@ int main(int argc,char** argv)
 							for (y=0;y<M;y++) {//y k
 								for (l=0;l<2;l++) {
 #ifdef DEBUG2
-									printf("%f %f ",((rtype*)lin2)[(y+z*M+x*M*K0)*sizeof(type)/sizeof(rtype)+l],
+									printf("%f %f ",((rtype*)lout)[(y+z*M+x*M*K0)*sizeof(type)/sizeof(rtype)+l],
 											((rtype*)in)[(x+coor[1]*N1+y*N+(coor[0]*K0+z)*N*M)*sizeof(type)/sizeof(rtype)+l]);
 								}
 								printf("\n");
 #else
-									assert(fabs(((rtype*)lin2)[(y+z*M+x*M*K0)*sizeof(type)/sizeof(rtype)+l]-
-											((rtype*)in)[(coor[1]*N1+x+y*N+(coor[0]*K0+z)*N*M)*sizeof(type)/sizeof(rtype)+l])<N*M*K*EPS);
+									assert(fabs(((rtype*)lout)[(y+z*M+x*M*K0)*sizeof(type)/sizeof(rtype)+l]-
+											((rtype*)in)[(coor[1]*N1+x+y*N+(coor[0]*K0+z)*N*M)*sizeof(type)/sizeof(rtype)+l])<2*N*M*K*EPS);
 									}
 #endif
 									
@@ -221,18 +221,22 @@ int main(int argc,char** argv)
 				} else {
 					for (z=0;z<fmin(K1,K-K1*coor[1]);z++) {//x i
 						for (y=0;y<fmin(M0,M-M0*coor[0]);y++) {//z j
-							for (x=0;x<N;x++) {//y k
-								for (l=0;l<((realcomplex&&x==N-1)?1:2);l++) { //don't check padding field
+							for (x=0;x<rN;x++) {//y k
+								int ls = realcomplex?1:2;
+								for (l=0;l<ls;l++) { //don't check padding field
 #ifdef DEBUG2
-									printf("%f,%f ",((rtype*)lin2)[(x+y*N+z*N*M0)*sizeof(type)/sizeof(rtype)+l],
-											((rtype*)in)[(x+(coor[0]*M0+y)*N+(coor[1]*K1+z)*N*M)*sizeof(type)/sizeof(rtype)+l]);
+									printf("%f,%f ",((rtype*)lout)[x*ls+(y*N+z*N*M0)*2+l],
+											((rtype*)in)[x*ls+((coor[0]*M0+y)*N+(coor[1]*K1+z)*N*M)*2+l]);
 								}
 							}
 							printf("\n");	
 																				
 			#else
-									assert(fabs(((rtype*)lin2)[(x+y*N+z*N*M0)*sizeof(type)/sizeof(rtype)+l]-
-											((rtype*)in)[(x+(coor[0]*M0+y)*N+(coor[1]*K1+z)*N*M)*sizeof(type)/sizeof(rtype)+l])<N*M*K*EPS);
+									assert(fabs(((rtype*)lout)[x*ls+(y*N+z*N*M0)*sizeof(type)/sizeof(rtype)+l]-
+											((rtype*)in)[x*ls+((coor[0]*M0+y)*N+(coor[1]*K1+z)*N*M)*sizeof(type)/sizeof(rtype)+l])<2*N*M*K*EPS);
+//									rtype diff = fabs(((rtype*)lout)[x*ls+(y*N+z*N*M0)*sizeof(type)/sizeof(rtype)+l]-
+//											((rtype*)in)[x*ls+((coor[0]*M0+y)*N+(coor[1]*K1+z)*N*M)*sizeof(type)/sizeof(rtype)+l]);
+//									if (diff>N*M*K*EPS) printf("ERROR: LARGE DIFFERENCE: %g\n",diff/(N*M*K*EPS));
 								}
 							}
 			#endif

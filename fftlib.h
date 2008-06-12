@@ -30,24 +30,25 @@ typedef struct pfft_time_t *pfft_time;
 
 struct pfft_plan_t {
 	type *lin;
-	type *lin2;
-	FFTW(plan) p11,p12,p13;
+	type *lout;
+	FFTW(plan) p1d[3];
 #ifdef FFT_MPI_TRANSPOSE
-	FFTW(plan) mpip1,mpip2;
+	FFTW(plan) mpip[2];
 #else
-	MPI_Comm cart1, cart2;
+	MPI_Comm cart[2];
 #endif
-	
-	int N1,M0,K0,K1;
-	int N,M,K;
-	int P[2];
+	int N[3],M[3],K[3],C[3],P[2];
+	int fftorder;
+	//int N0,N1,M0,M1,K0,K1;
+	//int N,M,K;
+	//int P[2];
 	int coor[2];
 }; 
 
 typedef struct pfft_plan_t *pfft_plan;
 
 void pfft_execute(pfft_plan plan,pfft_time times);
-pfft_plan pfft_plan_3d(int N, int M, int K, MPI_Comm comm, int P0, int direction, int realcomplex, type** lin, type** lin2);
+pfft_plan pfft_plan_3d(int N, int M, int K, MPI_Comm comm, int P0, int direction, int realcomplex, int inplace, type** lin, type** lin2);
 void pfft_local_size(pfft_plan plan,int* N1,int* M0,int* K0,int* K1,int** coor);
 void pfft_destroy(pfft_plan plan);
 
