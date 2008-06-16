@@ -1,5 +1,5 @@
-#ifndef FFTLIB_H_
-#define FFTLIB_H_
+#ifndef FFT5D_H_     
+#define FFT5D_H_
 
 #include <complex.h>
 
@@ -9,7 +9,7 @@
 #endif
 
 
-#ifdef PFFT_SINGLE
+#ifdef FFT5D_SINGLE
 #define FFTW(x) fftwf_##x
 typedef FFTW(complex) type;
 typedef float rtype;
@@ -23,12 +23,17 @@ typedef double rtype;
 #define MPI_RTYPE MPI_DOUBLE
 #endif
 
-struct pfft_time_t {
+struct fft5d_time_t {
 	double fft,local,mpi1,mpi2;
 };
-typedef struct pfft_time_t *pfft_time;
+typedef struct fft5d_time_t *fft5d_time;
 
-struct pfft_plan_t {
+enum fft5dorder {
+	ZY,
+	YZ
+};
+
+struct fft5d_plan_t {
 	type *lin;
 	type *lout;
 	FFTW(plan) p1d[3];
@@ -37,21 +42,24 @@ struct pfft_plan_t {
 #else
 	MPI_Comm cart[2];
 #endif
-	int N[3],M[3],K[3],C[3],P[2];
+	int N[3],M[3],K[3],C[3],rC[3],P[2];
 	int fftorder;
+	int direction;
+	int realcomplex;
 	//int N0,N1,M0,M1,K0,K1;
-	//int N,M,K;
+	int NG,MG,KG;
 	//int P[2];
 	int coor[2];
 }; 
 
-typedef struct pfft_plan_t *pfft_plan;
+typedef struct fft5d_plan_t *fft5d_plan;
 
-void pfft_execute(pfft_plan plan,pfft_time times);
-pfft_plan pfft_plan_3d(int N, int M, int K, MPI_Comm comm, int P0, int direction, int realcomplex, int inplace, type** lin, type** lin2);
-void pfft_local_size(pfft_plan plan,int* N1,int* M0,int* K0,int* K1,int** coor);
-void pfft_destroy(pfft_plan plan);
+void fft5d_execute(fft5d_plan plan,fft5d_time times,int debug);
+fft5d_plan fft5d_plan_3d(int N, int M, int K, MPI_Comm comm, int P0, int direction, int realcomplex, int inplace, int fftorder, type** lin, type** lin2);
+void fft5d_local_size(fft5d_plan plan,int* N1,int* M0,int* K0,int* K1,int** coor);
+void fft5d_destroy(fft5d_plan plan);
 
+void compare_data(const type* lin, const type* in, fft5d_plan plan, int debug);
 #ifndef __USE_ISOC99
 inline double fmax(double a, double b);
 inline double fmin(double a, double b);

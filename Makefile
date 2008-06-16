@@ -4,16 +4,16 @@
 
 CC=mpicc
 
-#CFLAGS =	 -g -Wall  -I $(HOME)/usr/include/ -DFFT_MPI_TRANSPOSE -DPFFT_SINGLE
+#CFLAGS =	 -g -Wall  -I $(HOME)/usr/include/ -DFFT_MPI_TRANSPOSE -DFFT5D_SINGLE
 #LIBS = -lfftw3f_mpi -lfftw3f -L $(HOME)/usr/lib
 
-CFLAGS =	-O2 -g -Wall  
+CFLAGS =	-O2 -g -Wall 
 LIBS = -lfftw3 
 
 
 #CC=cc
 
-OBJS =		fft.o fftlib.o
+OBJS =		testfft5d.o fft5d.o
 #OBJS =		fft.o 
 
 TARGET =	fft

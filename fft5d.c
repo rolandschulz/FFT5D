@@ -2,9 +2,10 @@
 #include <stdio.h>
 #include <stdlib.h>
 
-#include "fftlib.h"
+#include "fft5d.h"
 #include <float.h>
 #include <math.h>
+#include <assert.h>
 
 #ifndef __USE_ISOC99
 inline double fmax(double a, double b){
@@ -30,24 +31,20 @@ int l2factor(int z) {
 		if (z%i==0) return i;
 }
 
-//largest prime factor: WARNING: slow recursion
+//largest prime factor: WARNING: slow recursion, only use for small numbers
 int lpfactor(int z) {
 	int f = l2factor(z);
 	if (f==1) return z;
 	return fmax(lpfactor(f),lpfactor(z/f));
 }
 
-enum fftorder {
-	ZY,
-	YZ
-};
 
 //NxMxK the size of the data
-//comm communicator to use for PFFT
+//comm communicator to use for fft5d
 //P0 number of processor in 1st axes (can be null for automatic)
-//lin is allocated by pfft because size of array is only known after planning phase
+//lin is allocated by fft5d because size of array is only known after planning phase
 
-pfft_plan pfft_plan_3d(int NG, int MG, int KG, MPI_Comm comm, int P0, int direction, int realcomplex, int inplace, type** rlin, type** rlout) {
+fft5d_plan fft5d_plan_3d(int NG, int MG, int KG, MPI_Comm comm, int P0, int direction, int realcomplex, int inplace, int fftorder, type** rlin, type** rlout) {
 	int size,prank;
 	MPI_Comm_size(comm,&size);
 	MPI_Comm_rank(comm,&prank);
@@ -64,7 +61,7 @@ pfft_plan pfft_plan_3d(int NG, int MG, int KG, MPI_Comm comm, int P0, int direct
 
 	
 	if (prank==0) {
-		printf("N: %d, M: %d, K: %d, P: %dx%d, real to complex: %d, direction: %d\n",NG,MG,KG,P[0],P[1],realcomplex,direction);
+		printf("N: %d, M: %d, K: %d, P: %dx%d, real to complex: %d, direction: %d, fftorder %d\n",NG,MG,KG,P[0],P[1],realcomplex,direction,fftorder);
 		if (fmax(fmax(lpfactor(NG),lpfactor(MG)),lpfactor(KG))>7) {
 			printf("WARNING: FFT very slow with prime factors larger 7\n");
 			printf("Change FFT size or in case you cannot change it look at\n");
@@ -79,7 +76,7 @@ pfft_plan pfft_plan_3d(int NG, int MG, int KG, MPI_Comm comm, int P0, int direct
 	}
 
 	int rNG=NG,rMG=MG,rKG=KG;
-	int fftorder = ZY; //TODO
+	
 	if (realcomplex) {
 		if (direction==-1) NG = NG/2+1;
 		else {
@@ -106,6 +103,7 @@ pfft_plan pfft_plan_3d(int NG, int MG, int KG, MPI_Comm comm, int P0, int direct
 		N[0] = N1;
 		nP[0] = P[1];
 		C[1] = KG;
+		rC[1] =rKG;
 		N[1] = K0;
 		M[1] = M0;
 		K[1] = N1;
@@ -118,6 +116,7 @@ pfft_plan pfft_plan_3d(int NG, int MG, int KG, MPI_Comm comm, int P0, int direct
 		N[0] = N0;
 		nP[0] = P[0];
 		C[1] = MG;
+		rC[1] =rMG;
 		N[1] = M1;
 		M[1] = N0;
 		K[1] = K1;
@@ -154,7 +153,7 @@ pfft_plan pfft_plan_3d(int NG, int MG, int KG, MPI_Comm comm, int P0, int direct
 	
 	int flags=FFTW_MEASURE|FFTW_DESTROY_INPUT;
 	type* output=lout;
-	pfft_plan plan = (pfft_plan)malloc(sizeof(struct pfft_plan_t));
+	fft5d_plan plan = (fft5d_plan)malloc(sizeof(struct fft5d_plan_t));
 	int s;
 	for (s=0;s<3;s++) {
 		if (inplace && s==2) {
@@ -177,35 +176,28 @@ pfft_plan pfft_plan_3d(int NG, int MG, int KG, MPI_Comm comm, int P0, int direct
 	}
 		
 #ifdef FFT_MPI_TRANSPOSE
-	//TODO XY
-	FFTW(plan) mpip1 = FFTW(mpi_plan_many_transpose)(nP[1], nP[1], N1*K1*M0*2, 1, 1, (rtype*)lin, (rtype*)lout, cart[0], FFTW_MEASURE);
-	FFTW(plan) mpip2 = FFTW(mpi_plan_many_transpose)(nP[0], nP[0], N1*M0*K0*2, 1, 1, (rtype*)lin, (rtype*)lout, cart[1], FFTW_MEASURE);
-//	FFTW(plan) mpip1 = FFTW(mpi_plan_many_transpose)(P[1], N, N1*M0*2, 1, M0, (rtype*)lin, (rtype*)lout, cart[0], FFTW_MEASURE|FFTW_MPI_TRANSPOSED_OUT);
-//	FFTW(plan) mpip2 = FFTW(mpi_plan_many_transpose)(P[0], N, N1*M0*2, 1, N1, (rtype*)lin, (rtype*)lout, cart[1], FFTW_MEASURE|FFTW_MPI_TRANSPOSED_OUT);//|FFTW_MPI_TRANSPOSED_IN);
+	for (s=0;s<2;s++) {
+		plan->mpip[s] = FFTW(mpi_plan_many_transpose)(nP[s], nP[s], N[s]*K[s]*M[s]*2, 1, 1, (rtype*)lin, (rtype*)lout, cart[s], FFTW_MEASURE);
+	}
+#else 
+	plan->cart[0]=cart[0]; plan->cart[1]=cart[1];
 #endif
 	
 	plan->lin=lin;
 	plan->lout=lout;
-	#ifdef FFT_MPI_TRANSPOSE
-	plan->mpip1=mpip1;plan->mpip2=mpip2;
-	#else
-	plan->cart[0]=cart[0]; plan->cart[1]=cart[1];
-	#endif
 	
-//	plan->N0=N0;plan->N1=N1;plan->M0=M0;plan->M1=M1;plan->K0=K0;plan->K1=K1;
-//	plan->N=N;plan->M=M;plan->K=K;
-//	plan->P[0]=P[0];
-//	plan->P[1]=P[1];
+	plan->NG=NG;plan->MG=MG;plan->KG=KG;
 	
 	for (s=0;s<3;s++) {
-		plan->N[s]=N[s];plan->M[s]=M[s];plan->K[s]=K[s];plan->C[s]=C[s];
+		plan->N[s]=N[s];plan->M[s]=M[s];plan->K[s]=K[s];plan->C[s]=C[s];plan->rC[s]=rC[s];
 	}
 	for (s=0;s<2;s++) {
 		plan->P[s]=nP[s];plan->coor[s]=coor[s];
 	}
 	
 	plan->fftorder=fftorder;
-		
+	plan->direction=direction;	
+	plan->realcomplex=realcomplex;
 	*rlin=lin;
 	*rlout=lout;
 	return plan;
@@ -273,44 +265,138 @@ void joinAxesTrans12(type* lin,const type* lout,int N,int M,int K,int P,int MG) 
 	}
 }
 
-void print_localdata(const type* lin, const char* txt, int N,int M,int K, int s, int fftorder, const int* coor) {
-#ifdef DEBUG2
-	int xo,yo,zo,x,y,z,o;
+void rotate(int x[]) {
+	int t=x[0];
+//	x[0]=x[2];
+//	x[2]=x[1];
+//	x[1]=t;
+	x[0]=x[1];
+	x[1]=x[2];
+	x[2]=t;
+}
+
+//compute the offset to compare or print transposed local data in original input coordinates
+//xo matrix offset, xl dimension length, xc decomposition offset 
+void compute_offsets(fft5d_plan plan, int xo[], int xl[], int xc[], int NG[], int s) {
+	int direction = plan->direction;
+	int fftorder = plan->fftorder;
+	
+	int o;
+	
+	NG[0]=plan->NG;NG[1]=plan->MG;NG[2]=plan->KG;
+
 	if (fftorder==ZY) {
 		switch (s) {
 		case 0: o=XYZ; break;
 		case 1: o=ZYX; break;
 		case 2: o=YZX; break;
+		default: assert(0);
 		}
 	} else {
 		switch (s) {
-		case 0: o=ZXY; break;
-		case 1: o=XZY; break;
-		case 2: o=YZX; break;
+		case 0: o=XYZ; break;
+		case 1: o=YXZ; break;
+		case 2: o=ZXY; break;
+		default: assert(0);
 		}
 	}
+ 
+	int pos[3],i;
+	
 	switch (o) {
-	case XYZ:xo=1  ;yo=N  ;zo=N*M;break;
-	case XZY:xo=1  ;yo=N*K;zo=N  ;break;
-	case YXZ:xo=M  ;yo=1  ;zo=N*M;break;
-	case YZX:xo=M*K;yo=1  ;zo=M  ;break;
-	case ZXY:xo=K  ;yo=N*K;zo=1  ;break;
-	case ZYX:xo=M*K;yo=K  ;zo=1  ;break;
+		case XYZ:pos[0]=1;pos[1]=2;pos[2]=3;break;
+		case XZY:pos[0]=1;pos[1]=3;pos[2]=2;break;
+		case YXZ:pos[0]=2;pos[1]=1;pos[2]=3;break;
+		case YZX:pos[0]=3;pos[1]=1;pos[2]=2;break;
+		case ZXY:pos[0]=2;pos[1]=3;pos[2]=1;break;
+		case ZYX:pos[0]=3;pos[1]=2;pos[2]=1;break;
 	}
+	//if (debug) printf("pos: %d %d %d\n",pos[0],pos[1],pos[2]);
+	//int NG=plan->NG,MG=plan->MG,KG=plan->KG;
+	int *M=plan->M, *K=plan->K, *C=plan->C, *rC=plan->rC;
+	int *coor=plan->coor;
+	
+	//xo, xl give offset and length in local transposed coordinate system
+	//for 0(/1/2): x(/y/z) in original coordinate system
+	for (i=0;i<3;i++) {
+		switch (pos[i]) {
+		case 1: xo[i]=1;         xc[i]=0;            xl[i]=C[s];break;
+		case 2: xo[i]=C[s];      xc[i]=coor[0]*M[s]; xl[i]=fmin(M[s],NG[i]-coor[0]*M[s]);break;
+		case 3: xo[i]=C[s]*M[s]; xc[i]=coor[1]*K[s]; xl[i]=fmin(K[s],NG[i]-coor[1]*K[s]);break;
+		}
+	}
+	 //input order is different for test programm to match FFTW order (important for complex to real)
+	if (direction!=-1) {
+		rotate(xo);
+		rotate(xl);
+		rotate(xc);
+		rotate(NG);
+		if (fftorder!=ZY) {
+			rotate(xo);
+			rotate(xl);
+			rotate(xc);
+			rotate(NG);			
+		}
+	}
+	if (plan->realcomplex && ((direction==-1 && s==0) || (direction==1 && s==2))) {
+		xl[0] = rC[s];
+	}
+}
+
+void compare_data(const type* lin, const type* in, fft5d_plan plan, int debug) {
+	int xo[3],xl[3],xc[3],NG[3];
+	int x,y,z,l;
+	int *coor = plan->coor;
+	int ll=2;
+	if (plan->realcomplex && plan->direction==1) //s always 2 (because final result) 
+		ll=1;
+		
+	compute_offsets(plan,xo,xl,xc,NG,2);
+	if (debug) printf("Compare2\n");
+	for (z=0;z<xl[2];z++) {
+		for(y=0;y<xl[1];y++) {
+			if (debug) printf("%d %d: ",coor[0],coor[1]);
+			for (x=0;x<xl[0];x++) {
+				for (l=0;l<ll;l++) {
+					rtype a=((rtype*)lin)[(z*xo[2]+y*xo[1])*2+x*xo[0]*ll+l];
+					rtype b=((rtype*)in)[((z+xc[2])*NG[0]*NG[1]+(y+xc[1])*NG[0])*2+(x+xc[0])*ll+l]; 
+					if (debug) {
+						printf("%f %f, ",a,b);
+					} else {
+						assert(a-b<2*NG[0]*NG[1]*NG[2]*EPS);
+					}
+				}
+				if (debug) printf(",");
+			}
+			if (debug) printf("\n");
+		}
+	}
+	
+}
+//N, M, K not used anymore
+void print_localdata(const type* lin, const char* txt, int N,int M,int K, int s, fft5d_plan plan) {
+	int x,y,z,l;
+	int *coor = plan->coor;
+	int xo[3],xl[3],xc[3],NG[3];		
+	compute_offsets(plan,xo,xl,xc,NG,s);
+	int ll=(plan->realcomplex)?1:2;
 	printf(txt,coor[0],coor[1],s);
-	for (z=0;z<K;z++) {
-		for(y=0;y<M;y++) {
+	printf("xo: %d %d %d, xl: %d %d %d\n",xo[0],xo[1],xo[2],xl[0],xl[1],xl[2]);
+	for (z=0;z<xl[2];z++) {
+		for(y=0;y<xl[1];y++) {
 			printf("%d %d: ",coor[0],coor[1]);
-			for (x=0;x<N;x++) {
-				printf("%f+%fi ",((rtype*)lin)[(z*zo+y*yo+x*xo)*2],((rtype*)lin)[(z*zo+y*yo+x*xo)*2+1]);
+			for (x=0;x<xl[0];x++) {
+				for (l=0;l<ll;l++) {
+					printf("%f ",((rtype*)lin)[(z*xo[2]+y*xo[1])*2+(x*xo[0])*ll+l]);
+				}
+				printf(",");
 			}
 			printf("\n");
 		}
 	}
-#endif
 }
 
-void pfft_execute(pfft_plan plan,pfft_time times) {
+void fft5d_execute(fft5d_plan plan,fft5d_time times,int debug) {
 	type *lin = plan->lin;
 	type *lout = plan->lout;
 	FFTW(plan) *p1d=plan->p1d;
@@ -323,26 +409,25 @@ void pfft_execute(pfft_plan plan,pfft_time times) {
 	//int N=plan->N,M=plan->M,K=plan->K;
 	//int *P = plan->P;
 	double time_fft=0,time_local=0,time_mpi[2]={0},time;	
-	int *coor = plan->coor;
+	//int *coor = plan->coor;
 	int fftorder = plan->fftorder; 
-	
 	int *N=plan->N,*M=plan->M,*K=plan->K,*C=plan->C,*P=plan->P;
 	
 	
 
 	//lin: x,y,z
 	int s=0;
-	print_localdata(lin, "%d %d: copy in lin\n", C[0], M[0], K[0], s, fftorder, coor);
+	if (debug) print_localdata(lin, "%d %d: copy in lin\n", C[0], M[0], K[0], s, plan);
 	for (s=0;s<2;s++) {
 		time=MPI_Wtime();
 		FFTW(execute)(p1d[s]); //in:lin out:lout
 		time_fft+=MPI_Wtime()-time;
 	
-		print_localdata(lout, "%d %d: FFT %d\n", C[s], M[s], K[s], s, fftorder, coor);
+		if (debug) print_localdata(lout, "%d %d: FFT %d\n", C[s], M[s], K[s], s, plan);
 		
 		time=MPI_Wtime(); 
 		//prepare for AllToAll
-		//1. (most outer) axes (x) is split into P[1] parts of size M0 for sending
+		//1. (most outer) axes (x) is split into P[s] parts of size N[s] for sending
 		splitaxes(lin,lout,N[s],M[s],K[s],P[s],C[s]);
 		time_local+=MPI_Wtime()-time;
 		
@@ -357,25 +442,24 @@ void pfft_execute(pfft_plan plan,pfft_time times) {
 	
 		time=MPI_Wtime();
 		//bring back in matrix form (could be avoided by storing blocks as eleftheriou, really?)
-		//thus make z ( 1. axes) again contiguos
-		//also local transpose 1 and 3 
-		//then z,y,x
+		//thus make  new 1. axes contiguos
+		//also local transpose 1 and 2/3 
 		if ((s==0 && fftorder==ZY) || (s==1 && fftorder==YZ)) 
 			joinAxesTrans13(lin,lout,N[s],M[s],K[s],P[s],C[s+1]);
 		else 
 			joinAxesTrans12(lin,lout,N[s],M[s],K[s],P[s],C[s+1]);	
 		time_local+=MPI_Wtime()-time;
 	
-		print_localdata(lin, "%d %d: tranposed %d\n", C[s+1], M[s+1], K[s+1], s+1, fftorder, coor);
+		if (debug) print_localdata(lin, "%d %d: tranposed %d\n", C[s+1], M[s+1], K[s+1], s+1, plan);
 				
-		//print_localdata(lin, "%d %d: transposed x-z\n", N1, M0, K, ZYX, coor);
+		//if (debug) print_localdata(lin, "%d %d: transposed x-z\n", N1, M0, K, ZYX, coor);
 	}	
 	
 	time=MPI_Wtime();
 	FFTW(execute)(p1d[2]);
 	time_fft+=MPI_Wtime()-time;
-	print_localdata(lout, "%d %d: FFT %d\n", C[s], M[s], K[s], s, fftorder, coor);
-	//print_localdata(lout, "%d %d: FFT in y\n", N1, M, K0, YZX, coor);
+	if (debug) print_localdata(lout, "%d %d: FFT %d\n", C[s], M[s], K[s], s, plan);
+	//if (debug) print_localdata(lout, "%d %d: FFT in y\n", N1, M, K0, YZX, coor);
 	
 	if (times!=0) {
 		times->fft=time_fft;
@@ -385,14 +469,14 @@ void pfft_execute(pfft_plan plan,pfft_time times) {
 	}
 }
 
-void pfft_destroy(pfft_plan plan) {
+void fft5d_destroy(fft5d_plan plan) {
 	int s;
 	for (s=0;s<3;s++)
 		FFTW(destroy_plan)(plan->p1d[s]);
 	
 #ifdef FFT_MPI_TRANSPOSE
 	for (s=0;s<2;s++)	
-		FFTW(destroy_plan)(mpip[s]);
+		FFTW(destroy_plan)(plan->mpip[s]);
 #endif
 	FFTW(free)(plan->lin);
 	FFTW(free)(plan->lout);
@@ -401,7 +485,7 @@ void pfft_destroy(pfft_plan plan) {
 	
 }
 
-void pfft_local_size(pfft_plan plan,int* N1,int* M0,int* K0,int* K1,int** coor) {
+void fft5d_local_size(fft5d_plan plan,int* N1,int* M0,int* K0,int* K1,int** coor) {
 	*N1=plan->N[0];
 	*M0=plan->M[0];
 	*K1=plan->K[0];
