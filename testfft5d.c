@@ -294,7 +294,7 @@ int main(int argc,char** argv)
 	MPI_Reduce(times,otimes,sizeof(times)/sizeof(double),MPI_DOUBLE,MPI_SUM,0,MPI_COMM_WORLD);
 
 	if(prank==0) {
-		printf("Timing (ms): local: %lf+/-%lf, fft: %lf+/-%lf, mpi1: %lf+/-%lf, mpi2:%lf+/-%lf\n",
+		printf("Timing (ms): local: %lf+/-%lf, fft: %lf+/-%lf, mpi1: %lf+/-%lf, mpi2: %lf+/-%lf\n",
 				otimes[0]/size,sqrt(otimes[4]/size),
 				otimes[1]/size,sqrt(otimes[5]/size),
 				otimes[2]/size,sqrt(otimes[6]/size),

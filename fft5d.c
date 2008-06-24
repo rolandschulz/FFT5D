@@ -175,7 +175,7 @@ fft5d_plan fft5d_plan_3d(int NG, int MG, int KG, MPI_Comm comm, int P0, int dire
 		}
 	}
 		
-#ifdef FFT_MPI_TRANSPOSE
+#ifdef FFT5D_MPI_TRANSPOSE
 	for (s=0;s<2;s++) {
 		plan->mpip[s] = FFTW(mpi_plan_many_transpose)(nP[s], nP[s], N[s]*K[s]*M[s]*2, 1, 1, (rtype*)lin, (rtype*)lout, cart[s], FFTW_MEASURE);
 	}
@@ -400,7 +400,7 @@ void fft5d_execute(fft5d_plan plan,fft5d_time times,int debug) {
 	type *lin = plan->lin;
 	type *lout = plan->lout;
 	FFTW(plan) *p1d=plan->p1d;
-#ifdef FFT_MPI_TRANSPOSE
+#ifdef FFT5D_MPI_TRANSPOSE
 	FFTW(plan) *mpip=plan->mpip;
 #else
 	MPI_Comm *cart=plan->cart;
@@ -433,7 +433,7 @@ void fft5d_execute(fft5d_plan plan,fft5d_time times,int debug) {
 		
 		//send, recv
 		time=MPI_Wtime();
-	#ifdef FFT_MPI_TRANSPOSE
+	#ifdef FFT5D_MPI_TRANSPOSE
 			FFTW(execute)(mpip[s]);
 	#else
 	   	MPI_Alltoall(lin,N[s]*M[s]*K[s]*sizeof(type)/sizeof(rtype),MPI_RTYPE,lout,N[s]*M[s]*K[s]*sizeof(type)/sizeof(rtype),MPI_RTYPE,cart[s]);
@@ -474,7 +474,7 @@ void fft5d_destroy(fft5d_plan plan) {
 	for (s=0;s<3;s++)
 		FFTW(destroy_plan)(plan->p1d[s]);
 	
-#ifdef FFT_MPI_TRANSPOSE
+#ifdef FFT5D_MPI_TRANSPOSE
 	for (s=0;s<2;s++)	
 		FFTW(destroy_plan)(plan->mpip[s]);
 #endif
