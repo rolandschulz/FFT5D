@@ -1,0 +1,5 @@
+CC=icc
+CFLAGS =	-fast -Wall -fmessage-length=0
+LIBS = -lfftw3f
+
+include make.base
