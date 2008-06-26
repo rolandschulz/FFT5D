@@ -1,5 +1,6 @@
 CC=mpicc
-CFLAGS =	-O2 -g -Wall -fmessage-length=0 -I ../../../software/fftw-3.1.2/include
+#CFLAGS =	-O3 -fmessage-length=0 -I ../../../software/fftw-3.1.2/include -DFFT5D_SINGLE
+CFLAGS =	-g -I ../../../software/fftw-3.1.2/include -DFFT5D_SINGLE
 LIBS = -lfftw3f -L ../../../software/fftw-3.1.2/lib -lm
 
 include make.base

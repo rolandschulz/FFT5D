@@ -85,14 +85,21 @@ int main(int argc,char** argv)
 	case 2:
 		N=atoi(argv[1]);
 	}
+	int ccheck=1;
+	if (N*M*K>128*128*128) {
+	  if (prank==0) printf("No correctness check above 128\n");
+	  ccheck=0;
+	}
+	type* in;
+	if (ccheck) in = (type*) FFTW(malloc)(sizeof(type) * N*M*K);
 
-	type* in = (type*) FFTW(malloc)(sizeof(type) * N*M*K);
 	FFTW(plan) p2;
 
 	int rN=N;
 	if (realcomplex) {
 		N = N/2+1;
 	}
+	if (ccheck) {
 	if (realcomplex) {
 		if (direction==-1) {
 			p2 = FFTW(plan_dft_r2c_3d)(K, M, rN, (rtype*)in, (FFTW(complex)*)in, FFTW_ESTIMATE);
@@ -125,7 +132,7 @@ int main(int argc,char** argv)
 			}
 		}
 	}
-
+	}
 	type *lin,*lout;
 	int N1,N0,M1,M0,K0,K1,*coor;
 	fft5d_plan plan;
@@ -133,6 +140,7 @@ int main(int argc,char** argv)
 		plan = fft5d_plan_3d(rN,M,K,MPI_COMM_WORLD,P0, direction, realcomplex,0,fftorder, &lin,&lout);
 
 		fft5d_local_size(plan,&N1,&M0,&K0,&K1,&coor);
+		if (ccheck) {
 		for(x=0;x<N;x++) {  //x i
 			for (y=0;y<fmin(M0,M-coor[0]*M0);y++) { //y j  2nd of fmin for non dividable
 				for (z=0;z<fmin(K1,K-coor[1]*K1);z++) { //z k
@@ -141,6 +149,8 @@ int main(int argc,char** argv)
 					//lin[i*2+1]=in[coor[0]*2+1+i*M+coor[1]*M*M]; //imaginary part
 				}
 			}
+		}} else {
+		  init_random((rtype*)lin,N*M0*K1*sizeof(type)/sizeof(rtype),1,1);
 		}
 	} else { //write in as tranposed Z,X,Y so that it is X,Y,Z as result
 		//neccessary for realcomplex to have X as real axes
@@ -148,6 +158,7 @@ int main(int argc,char** argv)
 			plan = fft5d_plan_3d(K,rN,M,MPI_COMM_WORLD,P0, direction, realcomplex,0,fftorder,&lin,&lout);
 	
 			fft5d_local_size(plan,&K1,&N0,&M0,&M1,&coor);
+			if (ccheck) {
 			for(z=0;z<K;z++) {  //x i
 				for (x=0;x<fmin(N0,N-coor[0]*N0);x++) { //y j  2nd of fmin for non dividable
 					for (y=0;y<fmin(M1,M-coor[1]*M1);y++) { //z k
@@ -157,10 +168,14 @@ int main(int argc,char** argv)
 					}
 				}
 			}
+			} else {
+			  init_random((rtype*)lin,K*N0*M1*sizeof(type)/sizeof(rtype),1,1);
+			}
 		} else {
 			plan = fft5d_plan_3d(M,K,rN,MPI_COMM_WORLD,P0, direction, realcomplex,0,fftorder,&lin,&lout);
 				
 			fft5d_local_size(plan,&M1,&K0,&N0,&N1,&coor);
+			if (ccheck) {
 			for(y=0;y<M;y++) {  //x i
 				for (z=0;z<fmin(K0,K-coor[0]*K0);z++) { //y j  2nd of fmin for non dividable
 					for (x=0;x<fmin(N1,N-coor[1]*N1);x++) { //z k
@@ -170,11 +185,14 @@ int main(int argc,char** argv)
 					}
 				}
 			}
+			} else {
+			  init_random((rtype*)lin,M*K0*N1*sizeof(type)/sizeof(rtype),1,1);
+			}
 		}
 	}
 
 
-#define N_measure 10
+#define N_measure 1
 	int m;
 	double time_fft[N_measure]={0},time_local[N_measure]={0},time_mpi1[N_measure]={0},time_mpi2[N_measure]={0};
 	fft5d_time ptimes=(fft5d_time)malloc(sizeof(struct fft5d_time_t));
@@ -186,9 +204,7 @@ int main(int argc,char** argv)
 		time_mpi1[m]=ptimes->mpi1;
 		time_mpi2[m]=ptimes->mpi2;
 		if (m==0) {
-			if (M>128) {
-				if (prank==0) printf("No correctness check above 128\n");
-			} else {
+		  if (ccheck) {
 				if (debug) {
 				printf("Input\n");
 					if (prank==0) {
@@ -228,56 +244,7 @@ int main(int argc,char** argv)
 				} else {
 					if (prank==0) printf("OK\n");
 				}
-//				if (direction==-1) {
-//					for (x=0;x<fmin(N1,N-N1*coor[1]);x++) {//x i
-//						for (z=0;z<fmin(K0,K-K0*coor[0]);z++) {//z j
-//							for (y=0;y<M;y++) {//y k
-//								for (l=0;l<2;l++) {
-//#ifdef DEBUG2
-//									printf("%f %f ",((rtype*)lout)[(y+z*M+x*M*K0)*sizeof(type)/sizeof(rtype)+l],
-//											((rtype*)in)[(x+coor[1]*N1+y*N+(coor[0]*K0+z)*N*M)*sizeof(type)/sizeof(rtype)+l]);
-//#else
-//									assert(fabs(((rtype*)lout)[(y+z*M+x*M*K0)*sizeof(type)/sizeof(rtype)+l]-
-//											((rtype*)in)[(coor[1]*N1+x+y*N+(coor[0]*K0+z)*N*M)*sizeof(type)/sizeof(rtype)+l])<2*N*M*K*EPS);
-//#endif
-//								}
-//#ifdef DEBUG2
-//								printf("\n");
-//#endif										
-//							}
-//						}
-//					}
-//				} else {
-//					for (z=0;z<fmin(K1,K-K1*coor[1]);z++) {//x i
-//						for (y=0;y<fmin(M0,M-M0*coor[0]);y++) {//z j
-//							for (x=0;x<rN;x++) {//y k
-//								int ls = realcomplex?1:2;
-//								for (l=0;l<ls;l++) { //don't check padding field
-//#ifdef DEBUG2
-//									printf("%f,%f ",((rtype*)lout)[x*ls+(y*N+z*N*M0)*2+l],
-//											((rtype*)in)[x*ls+((coor[0]*M0+y)*N+(coor[1]*K1+z)*N*M)*2+l]);
-//
-//#else
-//									assert(fabs(((rtype*)lout)[x*ls+(y*N+z*N*M0)*sizeof(type)/sizeof(rtype)+l]-
-//											((rtype*)in)[x*ls+((coor[0]*M0+y)*N+(coor[1]*K1+z)*N*M)*sizeof(type)/sizeof(rtype)+l])<2*N*M*K*EPS);
-//									//									rtype diff = fabs(((rtype*)lout)[x*ls+(y*N+z*N*M0)*sizeof(type)/sizeof(rtype)+l]-
-//									//											((rtype*)in)[x*ls+((coor[0]*M0+y)*N+(coor[1]*K1+z)*N*M)*sizeof(type)/sizeof(rtype)+l]);
-//									//									if (diff>N*M*K*EPS) printf("ERROR: LARGE DIFFERENCE: %g\n",diff/(N*M*K*EPS));
-//#endif
-//								}
-//							}
-//#ifdef DEBUG2
-//							printf("\n");	
-//#endif
-//
-//						}
-//					}
-//				}
-//				if (prank==0) printf("OK\n");
-//#ifdef DEBUG2
-//				return 0;
-//#endif
-			}
+		  }
 		}
 	} // end measure
 	free(ptimes);	
@@ -300,8 +267,10 @@ int main(int argc,char** argv)
 				otimes[2]/size,sqrt(otimes[6]/size),
 				otimes[3]/size,sqrt(otimes[7]/size));
 	}
-	FFTW(destroy_plan)(p2);
-	FFTW(free)(in);
+	if (ccheck) { 
+	  FFTW(destroy_plan)(p2);
+	  FFTW(free)(in);
+	}
 	fft5d_destroy(plan);
 
 	return 0;	
