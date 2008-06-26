@@ -192,7 +192,7 @@ int main(int argc,char** argv)
 	}
 
 
-#define N_measure 1
+#define N_measure 10
 	int m;
 	double time_fft[N_measure]={0},time_local[N_measure]={0},time_mpi1[N_measure]={0},time_mpi2[N_measure]={0};
 	fft5d_time ptimes=(fft5d_time)malloc(sizeof(struct fft5d_time_t));
