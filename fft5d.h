@@ -13,13 +13,13 @@
 #define FFTW(x) fftwf_##x
 typedef FFTW(complex) type;
 typedef float rtype;
-#define EPS __FLT_EPSILON__
+#define FFT5D_EPS __FLT_EPSILON__
 #define MPI_RTYPE MPI_FLOAT
 #else
 #define FFTW(x) fftw_##x
 typedef FFTW(complex) type;
 typedef double rtype;
-#define EPS __DBL_EPSILON__
+#define FFT5D_EPS __DBL_EPSILON__
 #define MPI_RTYPE MPI_DOUBLE
 #endif
 
@@ -28,10 +28,14 @@ struct fft5d_time_t {
 };
 typedef struct fft5d_time_t *fft5d_time;
 
-enum fft5dorder {
-	ZY,
-	YZ
-};
+typedef enum fftflags {
+	FFT5D_ORDER_YZ=1,
+	FFT5D_BACKWARD=2,
+	FFT5D_REALCOMPLEX=4,
+	FFT5D_DEBUG=8,
+	FFT5D_NOMEASURE=16,
+	FFT5D_INPLACE=32
+} fft5dflags;
 
 struct fft5d_plan_t {
 	type *lin;
@@ -43,9 +47,10 @@ struct fft5d_plan_t {
 	MPI_Comm cart[2];
 #endif
 	int N[3],M[3],K[3],C[3],rC[3],P[2];
-	int fftorder;
-	int direction;
-	int realcomplex;
+//	int fftorder;
+//	int direction;
+//	int realcomplex;
+	fft5dflags flags;
 	//int N0,N1,M0,M1,K0,K1;
 	int NG,MG,KG;
 	//int P[2];
@@ -54,12 +59,12 @@ struct fft5d_plan_t {
 
 typedef struct fft5d_plan_t *fft5d_plan;
 
-void fft5d_execute(fft5d_plan plan,fft5d_time times,int debug);
-fft5d_plan fft5d_plan_3d(int N, int M, int K, MPI_Comm comm, int P0, int direction, int realcomplex, int inplace, int fftorder, type** lin, type** lin2);
+void fft5d_execute(fft5d_plan plan,fft5d_time times);
+fft5d_plan fft5d_plan_3d(int N, int M, int K, MPI_Comm comm, int P0, fft5dflags flags, type** lin, type** lin2);
 void fft5d_local_size(fft5d_plan plan,int* N1,int* M0,int* K0,int* K1,int** coor);
 void fft5d_destroy(fft5d_plan plan);
 
-void compare_data(const type* lin, const type* in, fft5d_plan plan, int debug);
+void fft5d_compare_data(const type* lin, const type* in, fft5d_plan plan);
 #ifndef __USE_ISOC99
 inline double fmax(double a, double b);
 inline double fmin(double a, double b);

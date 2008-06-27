@@ -1,3 +1,4 @@
+CC=mpicc
 CFLAGS =	 -g -Wall  -I $(HOME)/usr/include/ -DFFT_MPI_TRANSPOSE -DFFT5D_SINGLE
 LIBS = -lfftw3f_mpi -lfftw3f -L $(HOME)/usr/lib
 

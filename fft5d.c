@@ -54,7 +54,7 @@ fft5d_plan fft5d_plan_3d(int NG, int MG, int KG, MPI_Comm comm, int P0, fft5dfla
 		P0 = lfactor(size);
 	}
 	
-	if (prank==0) printf("FFT%D: Using %dx%d processor grid\n",P0,size/P0);
+	if (prank==0) printf("FFT5D: Using %dx%d processor grid\n",P0,size/P0);
 	
 	int P[] = {P0,size/P0}; //per proc 4*4*4 or 8*4*2
 

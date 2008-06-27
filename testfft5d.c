@@ -91,10 +91,10 @@ int main(int argc,char** argv)
 	  if (prank==0) printf("No correctness check above 128\n");
 	  ccheck=0;
 	}
-	type* in;
+	type* in=0;
 	if (ccheck) in = (type*) FFTW(malloc)(sizeof(type) * N*M*K);
 
-	FFTW(plan) p2;
+	FFTW(plan) p2=0;
 
 	int rN=N;
 	if (flags&FFT5D_REALCOMPLEX) {
