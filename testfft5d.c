@@ -63,19 +63,20 @@ int main(int argc,char** argv)
 
 	int N=10,K=10,M=10,P0=0;
 	int x,y,z;
-	int direction = -1;
-	int realcomplex = 0;
-	int debug = 0;
-	int fftorder = ZY;
+//	int direction = -1;
+//	int realcomplex = 0;
+//	int debug = 0;
+//	int fftorder = ZY;
+	int flags = 0;
 	switch (argc) { //falltrough!
 	case 9:
-		debug=atoi(argv[8]);		
+		flags|=FFT5D_DEBUG*(atoi(argv[8])==1);		
 	case 8:
-		fftorder=atoi(argv[7]);
+		flags|=FFT5D_ORDER_YZ*(atoi(argv[7])==1);
 	case 7:
-		direction=atoi(argv[6]);
+		flags|=FFT5D_BACKWARD*(atoi(argv[6])==1);
 	case 6:
-		realcomplex=atoi(argv[5]);
+		flags|=FFT5D_REALCOMPLEX*(atoi(argv[5])==1);
 	case 5:
 		P0=atoi(argv[4]);
 	case 4:
@@ -96,30 +97,31 @@ int main(int argc,char** argv)
 	FFTW(plan) p2;
 
 	int rN=N;
-	if (realcomplex) {
+	if (flags&FFT5D_REALCOMPLEX) {
 		N = N/2+1;
 	}
+
 	if (ccheck) {
-	if (realcomplex) {
-		if (direction==-1) {
+	if (flags&FFT5D_REALCOMPLEX) {
+		if (!(flags&FFT5D_BACKWARD)) {
 			p2 = FFTW(plan_dft_r2c_3d)(K, M, rN, (rtype*)in, (FFTW(complex)*)in, FFTW_ESTIMATE);
 		} else {
 			p2 = FFTW(plan_dft_c2r_3d)(K, M, rN, in, (rtype*)in, FFTW_ESTIMATE);
 		}
 	} else {
-		p2 = FFTW(plan_dft_3d)(K, M, N, (FFTW(complex)*)in, (FFTW(complex)*)in, direction, FFTW_ESTIMATE);
+		p2 = FFTW(plan_dft_3d)(K, M, N, (FFTW(complex)*)in, (FFTW(complex)*)in, (flags&FFT5D_BACKWARD)?1:-1, FFTW_ESTIMATE);
 	}
 
 	init_random((rtype*)in,N*M*K*sizeof(type)/sizeof(rtype),1,1);
 
-	if (direction==1 && realcomplex==1) { //in[0][y][z] needs to be real (otherwise data not conjugate complex)
+	if (flags&FFT5D_BACKWARD && flags&FFT5D_REALCOMPLEX) { //in[0][y][z] needs to be real (otherwise data not conjugate complex)
 		for (y=0;y<M;y++) {
 			for (z=0;z<K;z++) {
 				((rtype*)in)[(y*N+z*M*N)*2+1]=0;
 			}
 		}
 	}
-	if (debug) {
+	if (flags&FFT5D_DEBUG) {
 		printf("Input data\n");
 		if (prank==0) {
 			for(z=0;z<K;z++) {
@@ -136,8 +138,8 @@ int main(int argc,char** argv)
 	type *lin,*lout;
 	int N1,N0,M1,M0,K0,K1,*coor;
 	fft5d_plan plan;
-	if (direction==-1) { //write in as standard X,Y,Z
-		plan = fft5d_plan_3d(rN,M,K,MPI_COMM_WORLD,P0, direction, realcomplex,0,fftorder, &lin,&lout);
+	if (!(flags&FFT5D_BACKWARD)) { //write in as standard X,Y,Z
+		plan = fft5d_plan_3d(rN,M,K,MPI_COMM_WORLD,P0, flags, &lin,&lout);
 
 		fft5d_local_size(plan,&N1,&M0,&K0,&K1,&coor);
 		if (ccheck) {
@@ -154,8 +156,8 @@ int main(int argc,char** argv)
 		}
 	} else { //write in as tranposed Z,X,Y so that it is X,Y,Z as result
 		//neccessary for realcomplex to have X as real axes
-		if (fftorder==ZY) {
-			plan = fft5d_plan_3d(K,rN,M,MPI_COMM_WORLD,P0, direction, realcomplex,0,fftorder,&lin,&lout);
+		if (!(flags&FFT5D_ORDER_YZ)) {
+			plan = fft5d_plan_3d(K,rN,M,MPI_COMM_WORLD,P0, flags,&lin,&lout);
 	
 			fft5d_local_size(plan,&K1,&N0,&M0,&M1,&coor);
 			if (ccheck) {
@@ -172,7 +174,7 @@ int main(int argc,char** argv)
 			  init_random((rtype*)lin,K*N0*M1*sizeof(type)/sizeof(rtype),1,1);
 			}
 		} else {
-			plan = fft5d_plan_3d(M,K,rN,MPI_COMM_WORLD,P0, direction, realcomplex,0,fftorder,&lin,&lout);
+			plan = fft5d_plan_3d(M,K,rN,MPI_COMM_WORLD,P0, flags,&lin,&lout);
 				
 			fft5d_local_size(plan,&M1,&K0,&N0,&N1,&coor);
 			if (ccheck) {
@@ -198,14 +200,14 @@ int main(int argc,char** argv)
 	fft5d_time ptimes=(fft5d_time)malloc(sizeof(struct fft5d_time_t));
 	for (m=0;m<N_measure;m++) {
 
-		fft5d_execute(plan, ptimes,debug);
+		fft5d_execute(plan, ptimes);
 		time_fft[m]=ptimes->fft;
 		time_local[m]=ptimes->local;
 		time_mpi1[m]=ptimes->mpi1;
 		time_mpi2[m]=ptimes->mpi2;
 		if (m==0) {
 		  if (ccheck) {
-				if (debug) {
+				if (flags&FFT5D_DEBUG) {
 				printf("Input\n");
 					if (prank==0) {
 						for(z=0;z<K;z++) {
@@ -219,7 +221,7 @@ int main(int argc,char** argv)
 					}
 				}
 				FFTW(execute)(p2);
-				if (debug) {
+				if (flags&FFT5D_DEBUG) {
 	
 					if (prank==0) {
 						printf("Result from FFTW\n");
@@ -238,13 +240,14 @@ int main(int argc,char** argv)
 				//assert(test_equal(in,tmp,N*N*N,N,2,N));
 
 				if (prank==0) printf("Comparison\n");
-				compare_data(lout, in, plan,debug);
-				if (debug) { 
+				fft5d_compare_data(lout, in, plan);
+				if (flags&FFT5D_DEBUG) { 
 					return 0;
 				} else {
 					if (prank==0) printf("OK\n");
 				}
-		  }
+			}
+
 		}
 	} // end measure
 	free(ptimes);	
