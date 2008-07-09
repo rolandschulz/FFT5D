@@ -275,6 +275,7 @@ int main(int argc,char** argv)
 	  FFTW(free)(in);
 	}
 	fft5d_destroy(plan);
+	MPI_Finalize();
 
 	return 0;	
 }
