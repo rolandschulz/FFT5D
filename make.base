@@ -1,14 +1,17 @@
-OBJS =		testfft5d.o fft5d.o
-#OBJS =		fft.o 
-
-TARGET =	testfft5d
-
+OBJS =		fft5d.o
+TARGETOBJS = testfft5d.o fft5d_example.o
+TARGET =	testfft5d fft5d_example
 
 
-$(TARGET):	$(OBJS)
-	$(CC) -o $(TARGET) $(OBJS) $(LIBS)
+
+testfft5d:	testfft5d.o $(OBJS)
+	$(CC) -o testfft5d testfft5d.o $(OBJS) $(LIBS)
+
+fft5d_example:	fft5d_example.o $(OBJS)
+	$(CC) -o fft5d_example fft5d_example.o $(OBJS) $(LIBS)
+
 
 all:	$(TARGET)
 
 clean:
-	rm -f $(OBJS) $(TARGET)
+	rm -f $(OBJS) $(TARGET)  $(TARGETOBJS)

@@ -8,10 +8,10 @@
 #include <assert.h>
 
 #ifndef __USE_ISOC99
-inline double fmax(double a, double b){
+static inline double fmax(double a, double b){
 	return (a>b)?a:b;
 }
-inline double fmin(double a, double b){
+static inline double fmin(double a, double b){
 	return (a<b)?a:b;
 }
 #endif
@@ -147,9 +147,17 @@ fft5d_plan fft5d_plan_3d(int NG, int MG, int KG, MPI_Comm comm, int P0, fft5dfla
 	}
 
 	
-	int lsize = fmax(N[0]*M[0]*K[0]*nP[0],N[1]*M[1]*K[1]*nP[1]);
-	type* lin = (type*)FFTW(malloc)(sizeof(type) * lsize); //localin	
-	type* lout = (type*)FFTW(malloc)(sizeof(type) * lsize); //local output
+	//int lsize = fmax(N[0]*M[0]*K[0]*nP[0],N[1]*M[1]*K[1]*nP[1]);
+	int lsize = fmax(N[0]*M[0]*K[0]*nP[0],fmax(N[1]*M[1]*K[1]*nP[1],C[2]*M[2]*K[2]))*10; //TODO
+	//int lsize = fmax(C[0]*M[0]*K[0],fmax(C[1]*M[1]*K[1],C[2]*M[2]*K[2]));
+	type* lin,*lout;
+	if (!(flags&FFT5D_NOMALLOC)) { 
+		lin = (type*)FFTW(malloc)(sizeof(type) * lsize); //localin	
+		lout = (type*)FFTW(malloc)(sizeof(type) * lsize); //local output
+	} else {
+		lin = *rlin;
+		lout = *rlout;
+	}
 	
 	int fftwflags=FFTW_DESTROY_INPUT;
 	if (!(flags&FFT5D_NOMEASURE)) fftwflags^=FFTW_MEASURE;
@@ -163,7 +171,7 @@ fft5d_plan fft5d_plan_3d(int NG, int MG, int KG, MPI_Comm comm, int P0, fft5dfla
 		}
 		if ((flags&FFT5D_REALCOMPLEX) && !(flags&FFT5D_BACKWARD) && s==0) {
 			plan->p1d[s] = FFTW(plan_many_dft_r2c)(1, &rC[s], M[s]*K[s],   
-					(rtype*)lin, &rC[s], 1,   C[s]*2, 
+					(rtype*)lin, &rC[s], 1,   C[s]*2, //why *2
 					(FFTW(complex)*)output, &C[s], 1,   C[s], fftwflags);
 		} else if ((flags&FFT5D_REALCOMPLEX) && (flags&FFT5D_BACKWARD) && s==2) {
 			plan->p1d[s] = FFTW(plan_many_dft_c2r)(1, &rC[s], M[s]*K[s],   
@@ -220,7 +228,7 @@ enum order {
 //x (and N) is mayor (consecutive) dimension, y (M) middle and z (K) major
 //N,M,K is size of local data!
 //NG, MG, KG is size of global data
-void splitaxes(type* lin,const type* lout,int N,int M,int K,int P,int NG) {
+static void splitaxes(type* lin,const type* lout,int N,int M,int K,int P,int NG) {
 	int x,y,z,i;
 	for (i=0;i<P;i++) { //index cube along long axis
 		for (z=0;z<K;z++) { //3. z l
@@ -237,7 +245,7 @@ void splitaxes(type* lin,const type* lout,int N,int M,int K,int P,int NG) {
 //transpose mayor and major dimension
 //variables see above
 //the major, middle, minor order is only correct for x,y,z (N,M,K) for the input
-void joinAxesTrans13(type* lin,const type* lout,int N,int M,int K,int P,int KG) {
+static void joinAxesTrans13(type* lin,const type* lout,int N,int M,int K,int P,int KG) {
 	int i,x,y,z;
 	for (i=0;i<P;i++) { //index cube along long axis
 		for (x=0;x<N;x++) { //1.j
@@ -254,7 +262,7 @@ void joinAxesTrans13(type* lin,const type* lout,int N,int M,int K,int P,int KG) 
 //tranpose mayor and middle dimension
 //variables see above
 //the minor, middle, major order is only correct for x,y,z (N,M,K) for the input
-void joinAxesTrans12(type* lin,const type* lout,int N,int M,int K,int P,int MG) {
+static void joinAxesTrans12(type* lin,const type* lout,int N,int M,int K,int P,int MG) {
 	int i,z,y,x;
 	for (i=0;i<P;i++) { //index cube along long axis
 		for (z=0;z<K;z++) { 
@@ -267,7 +275,7 @@ void joinAxesTrans12(type* lin,const type* lout,int N,int M,int K,int P,int MG) 
 	}
 }
 
-void rotate(int x[]) {
+static void rotate(int x[]) {
 	int t=x[0];
 //	x[0]=x[2];
 //	x[2]=x[1];
@@ -279,7 +287,7 @@ void rotate(int x[]) {
 
 //compute the offset to compare or print transposed local data in original input coordinates
 //xo matrix offset, xl dimension length, xc decomposition offset 
-void compute_offsets(fft5d_plan plan, int xo[], int xl[], int xc[], int NG[], int s) {
+static void compute_offsets(fft5d_plan plan, int xo[], int xl[], int xc[], int NG[], int s) {
 //	int direction = plan->direction;
 //	int fftorder = plan->fftorder;
 	
@@ -344,7 +352,9 @@ void compute_offsets(fft5d_plan plan, int xo[], int xl[], int xc[], int NG[], in
 	}
 }
 
-void fft5d_compare_data(const type* lin, const type* in, fft5d_plan plan) {
+
+
+void fft5d_compare_data(const type* lin, const type* in, fft5d_plan plan, int bothLocal) {
 	int xo[3],xl[3],xc[3],NG[3];
 	int x,y,z,l;
 	int *coor = plan->coor;
@@ -360,7 +370,11 @@ void fft5d_compare_data(const type* lin, const type* in, fft5d_plan plan) {
 			for (x=0;x<xl[0];x++) {
 				for (l=0;l<ll;l++) {
 					rtype a=((rtype*)lin)[(z*xo[2]+y*xo[1])*2+x*xo[0]*ll+l];
-					rtype b=((rtype*)in)[((z+xc[2])*NG[0]*NG[1]+(y+xc[1])*NG[0])*2+(x+xc[0])*ll+l]; 
+					rtype b;
+					if (!bothLocal) 
+						b=((rtype*)in)[((z+xc[2])*NG[0]*NG[1]+(y+xc[1])*NG[0])*2+(x+xc[0])*ll+l];
+					else 
+						b=((rtype*)in)[(z*plan->C[0]*plan->M[0]+y*plan->M[0])*2+x*ll+l];
 					if (plan->flags&FFT5D_DEBUG) {
 						printf("%f %f, ",a,b);
 					} else {
@@ -374,8 +388,9 @@ void fft5d_compare_data(const type* lin, const type* in, fft5d_plan plan) {
 	}
 	
 }
+
 //N, M, K not used anymore
-void print_localdata(const type* lin, const char* txt, int N,int M,int K, int s, fft5d_plan plan) {
+static void print_localdata(const type* lin, const char* txt, int N,int M,int K, int s, fft5d_plan plan) {
 	int x,y,z,l;
 	int *coor = plan->coor;
 	int xo[3],xl[3],xc[3],NG[3];		
@@ -458,10 +473,10 @@ void fft5d_execute(fft5d_plan plan,fft5d_time times) {
 	//if (debug) print_localdata(lout, "%d %d: FFT in y\n", N1, M, K0, YZX, coor);
 	
 	if (times!=0) {
-		times->fft=time_fft;
-		times->local=time_local;
-		times->mpi2=time_mpi[1];
-		times->mpi1=time_mpi[0];
+		times->fft+=time_fft;
+		times->local+=time_local;
+		times->mpi2+=time_mpi[1];
+		times->mpi1+=time_mpi[0];
 	}
 }
 
@@ -474,9 +489,10 @@ void fft5d_destroy(fft5d_plan plan) {
 	for (s=0;s<2;s++)	
 		FFTW(destroy_plan)(plan->mpip[s]);
 #endif
-	FFTW(free)(plan->lin);
-	FFTW(free)(plan->lout);
-
+	if (!(plan->flags&FFT5D_NOMALLOC)) { 
+		FFTW(free)(plan->lin);
+		FFTW(free)(plan->lout);
+	}
 	free(plan);
 	
 }

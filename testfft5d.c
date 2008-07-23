@@ -19,7 +19,6 @@
 #include "fft5d.h"
 
 void init_random(rtype* x, int l);
-void swap(type *a, type *b);
 void avg(double* d, int n);
 
 
@@ -32,7 +31,7 @@ int main(int argc,char** argv)
 	MPI_Comm_rank(MPI_COMM_WORLD,&prank);
 
 
-	int N=0,K=0,M=0,P0=0;
+	int N=0,K=0,M=0,P0=0,N_measure=10;
 	int x,y,z;
 	int flags = 0;
 	char c;
@@ -42,6 +41,7 @@ Usage: %s [OPTION] N\n\
    or: %s [OPTION] N M K \n\
 \n\
 Compute parallel FFT on NxNxN or NxMxK size data on 2D prozessor grid\n\
+Correctness is checked by comparison to FFTW\n\
 \n\
 Options:\n\
   -P CPUS   CPUS number of processors used in 1st dimension\n\
@@ -50,10 +50,11 @@ Options:\n\
   -R        use real input (forward) or output (backward) data\n\
             default is complex to complex\n\
   -D        activate debuging\n\
+  -N RUNS	RUNS number of measurement runs for timing (default: 10)\n\
   -O        use YZ order (default: ZY order)\n\
             see manual\n";		
 		
-	while ((c = getopt (argc, argv, "BORhDP:")) != -1)
+	while ((c = getopt (argc, argv, "BORhDP:N:")) != -1)
 
 		switch (c) { 
 		case 'D':flags|=FFT5D_DEBUG;break;
@@ -61,6 +62,7 @@ Options:\n\
 		case 'B':flags|=FFT5D_BACKWARD;break;
 		case 'R':flags|=FFT5D_REALCOMPLEX;break;
 		case 'P':P0=atoi(optarg);break;
+		case 'N':N_measure=atoi(optarg);break;
 		default:
 			printf(helpmsg,argv[0],argv[0]);
 			abort();
@@ -179,12 +181,15 @@ Options:\n\
 	}
 
 
-#define N_measure 10
 	int m;
-	double time_fft[N_measure]={0},time_local[N_measure]={0},time_mpi1[N_measure]={0},time_mpi2[N_measure]={0};
+	double *time_fft,*time_local,*time_mpi1,*time_mpi2;
+	time_fft=calloc(sizeof(double),N_measure);
+	time_local=calloc(sizeof(double),N_measure);
+	time_mpi1=calloc(sizeof(double),N_measure);
+	time_mpi2=calloc(sizeof(double),N_measure);
 	fft5d_time ptimes=(fft5d_time)malloc(sizeof(struct fft5d_time_t));
 	for (m=0;m<N_measure;m++) {
-
+		ptimes->fft=ptimes->local=ptimes->mpi1=ptimes->mpi2=0;
 		fft5d_execute(plan, ptimes);
 		time_fft[m]=ptimes->fft;
 		time_local[m]=ptimes->local;
@@ -225,7 +230,7 @@ Options:\n\
 				//assert(test_equal(in,tmp,N*N*N,N,2,N));
 
 				if (prank==0) printf("Comparison\n");
-				fft5d_compare_data(lout, in, plan);
+				fft5d_compare_data(lout, in, plan,0);
 				if (flags&FFT5D_DEBUG) { 
 					return 0;
 				} else {
@@ -260,6 +265,7 @@ Options:\n\
 		FFTW(free)(in);
 	}
 	fft5d_destroy(plan);
+	free(time_fft);free(time_local);free(time_mpi1);free(time_mpi2);
 	MPI_Finalize();
 
 	return 0;	
@@ -273,13 +279,6 @@ void init_random(rtype* x, int l) {
 	}
 }
 
-
-
-void swap(type *a, type *b) {
-	type t=*a;
-	*a=*b;
-	*b=t;
-}
 
 //average d of length n excluding first element, writing result in d[0]
 void avg(double* d, int n) { 
