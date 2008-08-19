@@ -230,7 +230,7 @@ Options:\n\
 				//assert(test_equal(in,tmp,N*N*N,N,2,N));
 
 				if (prank==0) printf("Comparison\n");
-				fft5d_compare_data(lout, in, plan,0);
+				fft5d_compare_data(lout, in, plan,0,0);
 				if (flags&FFT5D_DEBUG) { 
 					return 0;
 				} else {

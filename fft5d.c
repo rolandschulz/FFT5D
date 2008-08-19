@@ -148,7 +148,7 @@ fft5d_plan fft5d_plan_3d(int NG, int MG, int KG, MPI_Comm comm, int P0, fft5dfla
 
 	
 	//int lsize = fmax(N[0]*M[0]*K[0]*nP[0],N[1]*M[1]*K[1]*nP[1]);
-	int lsize = fmax(N[0]*M[0]*K[0]*nP[0],fmax(N[1]*M[1]*K[1]*nP[1],C[2]*M[2]*K[2]))*10; //TODO
+	int lsize = fmax(N[0]*M[0]*K[0]*nP[0],fmax(N[1]*M[1]*K[1]*nP[1],C[2]*M[2]*K[2]))*2; //TODO
 	//int lsize = fmax(C[0]*M[0]*K[0],fmax(C[1]*M[1]*K[1],C[2]*M[2]*K[2]));
 	type* lin,*lout;
 	if (!(flags&FFT5D_NOMALLOC)) { 
@@ -354,12 +354,12 @@ static void compute_offsets(fft5d_plan plan, int xo[], int xl[], int xc[], int N
 
 
 
-void fft5d_compare_data(const type* lin, const type* in, fft5d_plan plan, int bothLocal) {
+void fft5d_compare_data(const type* lin, const type* in, fft5d_plan plan, int bothLocal, int normalize) {
 	int xo[3],xl[3],xc[3],NG[3];
 	int x,y,z,l;
 	int *coor = plan->coor;
 	int ll=2; //compare ll values per element (has to be 2 for complex)
-	if ((plan->flags&FFT5D_REALCOMPLEX) && (plan->flags&FFT5D_BACKWARD)) //s always 2 (because final result) 
+	if ((plan->flags&FFT5D_REALCOMPLEX) && (plan->flags&FFT5D_BACKWARD)) 
 		ll=1;
 		
 	compute_offsets(plan,xo,xl,xc,NG,2);
@@ -369,16 +369,20 @@ void fft5d_compare_data(const type* lin, const type* in, fft5d_plan plan, int bo
 			if (plan->flags&FFT5D_DEBUG) printf("%d %d: ",coor[0],coor[1]);
 			for (x=0;x<xl[0];x++) {
 				for (l=0;l<ll;l++) {
-					rtype a=((rtype*)lin)[(z*xo[2]+y*xo[1])*2+x*xo[0]*ll+l];
-					rtype b;
+					rtype a,b;
+					a=((rtype*)lin)[(z*xo[2]+y*xo[1])*2+x*xo[0]*ll+l];
+					if (normalize) a/=plan->rC[0]*plan->rC[1]*plan->rC[2];
 					if (!bothLocal) 
 						b=((rtype*)in)[((z+xc[2])*NG[0]*NG[1]+(y+xc[1])*NG[0])*2+(x+xc[0])*ll+l];
 					else 
-						b=((rtype*)in)[(z*plan->C[0]*plan->M[0]+y*plan->M[0])*2+x*ll+l];
+						b=((rtype*)in)[(z*xo[2]+y*xo[1])*2+x*xo[0]*ll+l];
 					if (plan->flags&FFT5D_DEBUG) {
 						printf("%f %f, ",a,b);
 					} else {
-						assert(a-b<2*NG[0]*NG[1]*NG[2]*FFT5D_EPS);
+						if (fabs(a-b)>2*NG[0]*NG[1]*NG[2]*FFT5D_EPS) {
+							printf("result incorrect at %d,%d,%d: FFT5D:%f reference:%f\n",x,y,z,a,b);
+						}
+//						assert(fabs(a-b)<2*NG[0]*NG[1]*NG[2]*FFT5D_EPS);
 					}
 				}
 				if (plan->flags&FFT5D_DEBUG) printf(",");

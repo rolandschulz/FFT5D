@@ -65,7 +65,7 @@ fft5d_plan fft5d_plan_3d(int N, int M, int K, MPI_Comm comm, int P0, fft5dflags 
 void fft5d_local_size(fft5d_plan plan,int* N1,int* M0,int* K0,int* K1,int** coor);
 void fft5d_destroy(fft5d_plan plan);
 
-void fft5d_compare_data(const type* lin, const type* in, fft5d_plan plan, int bothLocal);
+void fft5d_compare_data(const type* lin, const type* in, fft5d_plan plan, int bothLocal, int normarlize);
 #ifndef __USE_ISOC99
 inline double fmax(double a, double b);
 inline double fmin(double a, double b);
