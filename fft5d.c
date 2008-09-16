@@ -86,9 +86,9 @@ fft5d_plan fft5d_plan_3d(int NG, int MG, int KG, MPI_Comm comm, int P0, fft5dfla
 	}
 	
 	
-	int N0=ceil((double)NG/P[0]),N1=ceil((double)NG/P[1]);
-	int M0=ceil((double)MG/P[0]),M1=ceil((double)MG/P[1]);
-	int K0=ceil((double)KG/P[0]),K1=ceil((double)KG/P[1]);
+	int N0=ceil((double)NG/P[0]),N1=ceil((double)NG/P[1]); //setting it to the length of the current processor 
+	int M0=ceil((double)MG/P[0]),M1=ceil((double)MG/P[1]); //would allow also other distribution than last processor
+	int K0=ceil((double)KG/P[0]),K1=ceil((double)KG/P[1]); //less. And would not require max() in loops
 
 	//for step 1-3 the local N,M,K sizes of the transposed system
 	//C: contiguous dimension, and nP: number of processor in subcommunicator
@@ -148,7 +148,7 @@ fft5d_plan fft5d_plan_3d(int NG, int MG, int KG, MPI_Comm comm, int P0, fft5dfla
 
 	
 	//int lsize = fmax(N[0]*M[0]*K[0]*nP[0],N[1]*M[1]*K[1]*nP[1]);
-	int lsize = fmax(N[0]*M[0]*K[0]*nP[0],fmax(N[1]*M[1]*K[1]*nP[1],C[2]*M[2]*K[2]))*2; //TODO
+	int lsize = fmax(N[0]*M[0]*K[0]*nP[0],fmax(N[1]*M[1]*K[1]*nP[1],C[2]*M[2]*K[2])); //TODO
 	//int lsize = fmax(C[0]*M[0]*K[0],fmax(C[1]*M[1]*K[1],C[2]*M[2]*K[2]));
 	type* lin,*lout;
 	if (!(flags&FFT5D_NOMALLOC)) { 
@@ -287,6 +287,7 @@ static void rotate(int x[]) {
 
 //compute the offset to compare or print transposed local data in original input coordinates
 //xo matrix offset, xl dimension length, xc decomposition offset 
+//s: step in computation = number of transposes
 static void compute_offsets(fft5d_plan plan, int xo[], int xl[], int xc[], int NG[], int s) {
 //	int direction = plan->direction;
 //	int fftorder = plan->fftorder;
@@ -347,19 +348,19 @@ static void compute_offsets(fft5d_plan plan, int xo[], int xl[], int xc[], int N
 			rotate(NG);			
 		}
 	}
-	if ((plan->flags&FFT5D_REALCOMPLEX) && (!((plan->flags&FFT5D_BACKWARD) && s==0) || ((plan->flags&FFT5D_BACKWARD) && s==2))) {
+	if (plan->flags&FFT5D_REALCOMPLEX && ((!(plan->flags&FFT5D_BACKWARD) && s==0) || (plan->flags&FFT5D_BACKWARD && s==2))) {
 		xl[0] = rC[s];
 	}
 }
 
 
-
+//prints in original coordinate system of data (as the input to FFT)
 void fft5d_compare_data(const type* lin, const type* in, fft5d_plan plan, int bothLocal, int normalize) {
 	int xo[3],xl[3],xc[3],NG[3];
 	int x,y,z,l;
 	int *coor = plan->coor;
 	int ll=2; //compare ll values per element (has to be 2 for complex)
-	if ((plan->flags&FFT5D_REALCOMPLEX) && (plan->flags&FFT5D_BACKWARD)) 
+	if (plan->flags&FFT5D_REALCOMPLEX && plan->flags&FFT5D_BACKWARD) 
 		ll=1;
 		
 	compute_offsets(plan,xo,xl,xc,NG,2);
@@ -380,7 +381,7 @@ void fft5d_compare_data(const type* lin, const type* in, fft5d_plan plan, int bo
 						printf("%f %f, ",a,b);
 					} else {
 						if (fabs(a-b)>2*NG[0]*NG[1]*NG[2]*FFT5D_EPS) {
-							printf("result incorrect at %d,%d,%d: FFT5D:%f reference:%f\n",x,y,z,a,b);
+							printf("result incorrect on %d,%d at %d,%d,%d: FFT5D:%f reference:%f\n",coor[0],coor[1],x,y,z,a,b);
 						}
 //						assert(fabs(a-b)<2*NG[0]*NG[1]*NG[2]*FFT5D_EPS);
 					}
@@ -401,7 +402,7 @@ static void print_localdata(const type* lin, const char* txt, int N,int M,int K,
 	compute_offsets(plan,xo,xl,xc,NG,s);
 	int ll=(plan->flags&FFT5D_REALCOMPLEX)?1:2;
 	printf(txt,coor[0],coor[1],s);
-	printf("xo: %d %d %d, xl: %d %d %d\n",xo[0],xo[1],xo[2],xl[0],xl[1],xl[2]);
+	//printf("xo: %d %d %d, xl: %d %d %d\n",xo[0],xo[1],xo[2],xl[0],xl[1],xl[2]);
 	for (z=0;z<xl[2];z++) {
 		for(y=0;y<xl[1];y++) {
 			printf("%d %d: ",coor[0],coor[1]);
@@ -502,6 +503,7 @@ void fft5d_destroy(fft5d_plan plan) {
 }
 
 //TODO better than direct access of plan? enough data?
+//here 0,1 reference divided by which processor grid dimension (not FFT step!)
 void fft5d_local_size(fft5d_plan plan,int* N1,int* M0,int* K0,int* K1,int** coor) {
 	*N1=plan->N[0];
 	*M0=plan->M[0];

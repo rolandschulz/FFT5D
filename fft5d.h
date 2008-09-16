@@ -47,7 +47,10 @@ struct fft5d_plan_t {
 #else
 	MPI_Comm cart[2];
 #endif
-	int N[3],M[3],K[3],C[3],rC[3],P[2];
+	int N[3],M[3],K[3]; //local length in transposed coordinate system
+	int C[3],rC[3]; //global length (of the one global axes) 
+	//C!=rC for real<->complex. then C=rC/2 but with potential padding
+	int P[2]; //size of processor grid
 //	int fftorder;
 //	int direction;
 //	int realcomplex;
