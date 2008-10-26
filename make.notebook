@@ -3,3 +3,5 @@ CFLAGS =	-O2 -g -Wall
 LIBS = -lfftw3 
 
 include make.base
+
+all:	$(TARGET)

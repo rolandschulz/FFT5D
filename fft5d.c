@@ -7,13 +7,15 @@
 #include <math.h>
 #include <assert.h>
 
-#ifndef __USE_ISOC99
+#ifndef __USE_ISOC99 
+#if ! ( __GNUC__ >= 4 && __GNUC_MINOR__ >= 3)
 static inline double fmax(double a, double b){
 	return (a>b)?a:b;
 }
 static inline double fmin(double a, double b){
 	return (a<b)?a:b;
 }
+#endif
 #endif
 
 //largest factor smaller than sqrt

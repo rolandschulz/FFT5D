@@ -4,3 +4,5 @@ CFLAGS = $(FFTW_INCLUDE_OPTS) -g
 LIBS = $(FFTW_POST_LINK_OPTS)
 
 include make.base
+
+all:	$(TARGET)

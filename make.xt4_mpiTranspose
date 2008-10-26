@@ -2,3 +2,5 @@ CFLAGS=-fastsse -I$(HOME)/fftw32/include -DFFT5D_MPI_TRANSPOSE -DFFT5D_SINGLE
 LIBS = -L$(HOME)/fftw32/lib -lfftw3f_mpi -lfftw3f 
 
 include make.base
+
+all:	$(TARGET)

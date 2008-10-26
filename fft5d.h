@@ -4,7 +4,7 @@
 #include <complex.h>
 
 #include <fftw3.h>
-#ifdef FFT_MPI_TRANSPOSE
+#ifdef FFT5D_MPI_TRANSPOSE
 #include <fftw3-mpi.h>
 #endif
 
@@ -42,7 +42,7 @@ struct fft5d_plan_t {
 	type *lin;
 	type *lout;
 	FFTW(plan) p1d[3];
-#ifdef FFT_MPI_TRANSPOSE
+#ifdef FFT5D_MPI_TRANSPOSE
 	FFTW(plan) mpip[2];
 #else
 	MPI_Comm cart[2];
