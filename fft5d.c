@@ -162,14 +162,14 @@ fft5d_plan fft5d_plan_3d(int NG, int MG, int KG, MPI_Comm comm, int P0, fft5dfla
 	}
 	
 	int fftwflags=FFTW_DESTROY_INPUT;
-	if (!(flags&FFT5D_NOMEASURE)) fftwflags^=FFTW_MEASURE;
+	if (!(flags&FFT5D_NOMEASURE)) fftwflags|=FFTW_MEASURE;
 	type* output=lout;
 	fft5d_plan plan = (fft5d_plan)malloc(sizeof(struct fft5d_plan_t));
 	int s;
 	for (s=0;s<3;s++) {
 		if ((flags&FFT5D_INPLACE) && s==2) {
 			output=lin;
-			fftwflags^=FFTW_DESTROY_INPUT;
+			fftwflags&=~FFTW_DESTROY_INPUT;
 		}
 		if ((flags&FFT5D_REALCOMPLEX) && !(flags&FFT5D_BACKWARD) && s==0) {
 			plan->p1d[s] = FFTW(plan_many_dft_r2c)(1, &rC[s], M[s]*K[s],   
@@ -188,7 +188,7 @@ fft5d_plan fft5d_plan_3d(int NG, int MG, int KG, MPI_Comm comm, int P0, fft5dfla
 		
 #ifdef FFT5D_MPI_TRANSPOSE
 	for (s=0;s<2;s++) {
-		plan->mpip[s] = FFTW(mpi_plan_many_transpose)(nP[s], nP[s], N[s]*K[s]*M[s]*2, 1, 1, (rtype*)lin, (rtype*)lout, cart[s], FFTW_MEASURE);
+		plan->mpip[s] = FFTW(mpi_plan_many_transpose)(nP[s], nP[s], N[s]*K[s]*M[s]*2, 1, 1, (rtype*)lin, (rtype*)lout, cart[s], FFTW_PATIENT);
 	}
 #else 
 	plan->cart[0]=cart[0]; plan->cart[1]=cart[1];
