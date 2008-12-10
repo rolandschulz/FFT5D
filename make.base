@@ -2,7 +2,7 @@ OBJS =		fft5d.o
 TARGETOBJS = testfft5d.o fft5d_example.o
 TARGET =	testfft5d fft5d_example
 
-
+all:	$(TARGET)
 
 testfft5d:	testfft5d.o $(OBJS)
 	$(CC) -o testfft5d testfft5d.o $(OBJS) $(LIBS)
@@ -13,3 +13,5 @@ fft5d_example:	fft5d_example.o $(OBJS)
 
 clean:
 	rm -f $(OBJS) $(TARGET)  $(TARGETOBJS)
+
+

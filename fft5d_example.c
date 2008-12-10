@@ -39,8 +39,8 @@ int main(int argc,char** argv)
 Usage: %s [OPTION] N\n\
    or: %s [OPTION] N M K \n\
 \n\
-Compute parallel FFT on NxNxN or NxMxK size data on 2D prozessor grid\n\
-Correctness is checked by comparison to FFTW\n\
+Compute forward and backward parallel FFT on NxNxN or NxMxK size data on 2D prozessor grid\n\
+Correctness is checked by comparison forward and backward transform equal to identity\n\
 \n\
 Options:\n\
   -P CPUS   CPUS number of processors used in 1st dimension\n\

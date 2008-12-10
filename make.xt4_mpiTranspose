@@ -3,4 +3,3 @@ LIBS = -L$(HOME)/software/fftw32/lib -lfftw3f_mpi -lfftw3f
 
 include make.base
 
-all:	$(TARGET)

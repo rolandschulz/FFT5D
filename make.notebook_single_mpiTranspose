@@ -5,4 +5,3 @@ LIBS = -lfftw3f_mpi -lfftw3f -L $(HOME)/usr/lib
 include make.base
 
 
-all:	$(TARGET)

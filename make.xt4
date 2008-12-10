@@ -5,4 +5,4 @@ LIBS = $(FFTW_POST_LINK_OPTS)
 
 include make.base
 
-all:	$(TARGET)
+

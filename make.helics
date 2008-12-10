@@ -5,4 +5,3 @@ LIBS = -lfftw3f -L ../../../software/fftw-3.1.2/lib -lm
 
 include make.base
 
-all:	$(TARGET)
