@@ -33,7 +33,7 @@ int main(int argc,char** argv)
 
 	int N=0,K=0,M=0,P0=0,N_measure=10;
 	int flags = 0;
-	char c;
+	int c;
 
 	const char* helpmsg = "\
 Usage: %s [OPTION] N\n\
@@ -61,6 +61,7 @@ Options:\n\
 		case 'P':P0=atoi(optarg);break;
 		case 'N':N_measure=atoi(optarg);break;
 		default:
+		        printf("%s: invalid option -- %c\n",argv[0],c);
 			printf(helpmsg,argv[0],argv[0]);
 			abort();
 		}
@@ -72,6 +73,7 @@ Options:\n\
 		M=atoi(argv[optind+1]);
 		N=atoi(argv[optind]);
 	} else {
+                printf("%s: incorrect number of parameters\n",argv[0],c);
 		printf(helpmsg,argv[0],argv[0]);
 		abort();
 	} 
