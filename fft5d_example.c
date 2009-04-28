@@ -105,11 +105,12 @@ Options:\n\
 	
 	int m;
 	struct fft5d_time_t ptimes={0};
-			
+	double ttime=0;
 	for (m=0;m<N_measure;m++) {
-
+	        ttime-=MPI_Wtime();
 		fft5d_execute(p1, &ptimes);
 		fft5d_execute(p2, &ptimes);
+		ttime+=MPI_Wtime();
 		if (m==0) {
 
 			if (prank==0) printf("Comparison\n");
@@ -125,15 +126,17 @@ Options:\n\
 		}
 	} // end measure
 	struct fft5d_time_t otimes={0};
+	double ottime;
 	ptimes.fft/=N_measure;ptimes.local/=N_measure;ptimes.mpi1/=N_measure;ptimes.mpi2/=N_measure;
-	
+	ttime/=N_measure;
 	//printf("avg: %lf\n",time_mpi1[0]);
 
-	MPI_Reduce(&ptimes,&otimes,sizeof(ptimes)/sizeof(double),MPI_DOUBLE,MPI_SUM,0,MPI_COMM_WORLD);
+	MPI_Reduce(&ptimes,&otimes,sizeof(ptimes)/sizeof(double),MPI_DOUBLE,MPI_MAX,0,MPI_COMM_WORLD);
+	MPI_Reduce(&ttime,&ottime,1,MPI_DOUBLE,MPI_MAX,0,MPI_COMM_WORLD);
 
 	if(prank==0) {
-		printf("Timing (ms): local: %lf, fft: %lf, mpi1: %lf, mpi2: %lf\n",
-				otimes.local*1000/size,otimes.fft*1000/size,otimes.mpi1*1000/size,otimes.mpi2*1000/size);
+		printf("Timing (ms): local: %lf, fft: %lf, mpi1: %lf, mpi2: %lf, total: %lf\n",
+				otimes.local*1000,otimes.fft*1000,otimes.mpi1*1000,otimes.mpi2*1000,ottime*1000);
 	}
 	
 	fft5d_destroy(p2);
