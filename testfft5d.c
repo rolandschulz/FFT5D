@@ -18,7 +18,7 @@
 
 #include "fft5d.h"
 
-void init_random(rtype* x, int l);
+void init_random(fft5d_rtype* x, int l);
 void avg(double* d, int n);
 
 
@@ -84,8 +84,8 @@ Options:\n\
 		if (prank==0) printf("No correctness check above 128\n");
 		ccheck=0;
 	}
-	type* in=0;
-	if (ccheck) in = (type*) FFTW(malloc)(sizeof(type) * N*M*K);
+	fft5d_type* in=0;
+	if (ccheck) in = (fft5d_type*) FFTW(malloc)(sizeof(fft5d_type) * N*M*K);
 
 	FFTW(plan) p2=0;
 
@@ -97,20 +97,20 @@ Options:\n\
 	if (ccheck) {
 		if (flags&FFT5D_REALCOMPLEX) {
 			if (!(flags&FFT5D_BACKWARD)) {
-				p2 = FFTW(plan_dft_r2c_3d)(K, M, rN, (rtype*)in, (FFTW(complex)*)in, FFTW_ESTIMATE);
+				p2 = FFTW(plan_dft_r2c_3d)(K, M, rN, (fft5d_rtype*)in, (FFTW(complex)*)in, FFTW_ESTIMATE);
 			} else {
-				p2 = FFTW(plan_dft_c2r_3d)(K, M, rN, in, (rtype*)in, FFTW_ESTIMATE);
+				p2 = FFTW(plan_dft_c2r_3d)(K, M, rN, in, (fft5d_rtype*)in, FFTW_ESTIMATE);
 			}
 		} else {
 			p2 = FFTW(plan_dft_3d)(K, M, N, (FFTW(complex)*)in, (FFTW(complex)*)in, (flags&FFT5D_BACKWARD)?1:-1, FFTW_ESTIMATE);
 		}
 
-		init_random((rtype*)in,N*M*K*sizeof(type)/sizeof(rtype));
+		init_random((fft5d_rtype*)in,N*M*K*sizeof(fft5d_type)/sizeof(fft5d_rtype));
 
 		if (flags&FFT5D_BACKWARD && flags&FFT5D_REALCOMPLEX) { //in[0][y][z] needs to be real (otherwise data not conjugate complex)
 			for (y=0;y<M;y++) {
 				for (z=0;z<K;z++) {
-					((rtype*)in)[(y*N+z*M*N)*2+1]=0;
+					((fft5d_rtype*)in)[(y*N+z*M*N)*2+1]=0;
 				}
 			}
 		}
@@ -120,7 +120,7 @@ Options:\n\
 				for(z=0;z<K;z++) {
 					for (y=0;y<M;y++) {
 						for (x=0;x<N;x++) {				
-							printf("%f+%fi ",((rtype*)in)[(x+y*N+z*M*N)*2],((rtype*)in)[(x+y*N+z*M*N)*2+1]);
+							printf("%f+%fi ",((fft5d_rtype*)in)[(x+y*N+z*M*N)*2],((fft5d_rtype*)in)[(x+y*N+z*M*N)*2+1]);
 						}
 						printf("\n");
 					}
@@ -128,7 +128,7 @@ Options:\n\
 			}
 		}
 	}
-	type *lin,*lout;
+	fft5d_type *lin,*lout;
 	int N1,N0,M1,M0,K0,K1,*coor;
 	fft5d_plan plan;
 	if (!(flags&FFT5D_BACKWARD)) { //write in as standard X,Y,Z
@@ -143,7 +143,7 @@ Options:\n\
 					}
 				}
 			}} else {
-				init_random((rtype*)lin,N*M0*K1*sizeof(type)/sizeof(rtype));
+				init_random((fft5d_rtype*)lin,N*M0*K1*sizeof(fft5d_type)/sizeof(fft5d_rtype));
 			}
 	} else { //write in as tranposed Z,X,Y so that it is X,Y,Z as result
 		//neccessary for realcomplex to have X as real axes
@@ -160,7 +160,7 @@ Options:\n\
 					}
 				}
 			} else {
-				init_random((rtype*)lin,K*N0*M1*sizeof(type)/sizeof(rtype));
+				init_random((fft5d_rtype*)lin,K*N0*M1*sizeof(fft5d_type)/sizeof(fft5d_rtype));
 			}
 		} else {
 			plan = fft5d_plan_3d(M,K,rN,MPI_COMM_WORLD,P0, flags,&lin,&lout);
@@ -175,7 +175,7 @@ Options:\n\
 					}
 				}
 			} else {
-				init_random((rtype*)lin,M*K0*N1*sizeof(type)/sizeof(rtype));
+				init_random((fft5d_rtype*)lin,M*K0*N1*sizeof(fft5d_type)/sizeof(fft5d_rtype));
 			}
 		}
 	}
@@ -203,7 +203,7 @@ Options:\n\
 						for(z=0;z<K;z++) {
 							for (y=0;y<M;y++) {
 								for (x=0;x<N;x++) {				
-									printf("%f+%fi ",((rtype*)in)[(x+y*N+z*M*N)*2],((rtype*)in)[(x+y*N+z*M*N)*2+1]);
+									printf("%f+%fi ",((fft5d_rtype*)in)[(x+y*N+z*M*N)*2],((fft5d_rtype*)in)[(x+y*N+z*M*N)*2+1]);
 								}
 								printf("\n");
 							}
@@ -218,7 +218,7 @@ Options:\n\
 						for(z=0;z<K;z++) {
 							for (y=0;y<M;y++) {
 								for (x=0;x<N;x++) {				
-									printf("%f+%fi ",((rtype*)in)[(x+y*N+z*M*N)*2],((rtype*)in)[(x+y*N+z*M*N)*2+1]);
+									printf("%f+%fi ",((fft5d_rtype*)in)[(x+y*N+z*M*N)*2],((fft5d_rtype*)in)[(x+y*N+z*M*N)*2+1]);
 								}
 								printf("\n");
 							}
@@ -272,10 +272,10 @@ Options:\n\
 }
 
 //initialize vector x of length l with random values
-void init_random(rtype* x, int l) {
+void init_random(fft5d_rtype* x, int l) {
 	int i;
 	for (i=0;i<l;i++) {
-		x[i]=((rtype)rand())/RAND_MAX;
+		x[i]=((fft5d_rtype)rand())/RAND_MAX;
 	}
 }
 

@@ -18,7 +18,7 @@
 
 #include "fft5d.h"
 
-void init_random(rtype* x, int l);
+void init_random(fft5d_rtype* x, int l);
 void avg(double* d, int n);
 
 
@@ -84,14 +84,14 @@ Options:\n\
 		N = N/2+1;
 	}
 
-	type *lin,*lout,*initial;
+	fft5d_type *lin,*lout,*initial;
 	int N1,M0,K0,K1,*coor;
 	fft5d_plan p1,p2;
 	
 	p1 = fft5d_plan_3d(rN,M,K,MPI_COMM_WORLD,P0, flags, &lin,&lout);
 	fft5d_local_size(p1,&N1,&M0,&K0,&K1,&coor);
 	int lsize = N*M0*K1; 
-	initial=malloc(lsize*sizeof(type)); 
+	initial=malloc(lsize*sizeof(fft5d_type)); 
 	
 	int Nb,Mb,Kb; //dimension for backtransform (in starting order)
 	if (!(flags&FFT5D_ORDER_YZ)) {Nb=M;Mb=K;Kb=rN;}		
@@ -100,8 +100,8 @@ Options:\n\
 	p2 = fft5d_plan_3d(Nb,Mb,Kb,MPI_COMM_WORLD,P0,  
 		(flags|FFT5D_BACKWARD|FFT5D_NOMALLOC)^FFT5D_ORDER_YZ,&lout,&lin);
 
-	init_random((rtype*)lin,lsize*sizeof(type)/sizeof(rtype));
-	memcpy(initial,lin,lsize*sizeof(type));
+	init_random((fft5d_rtype*)lin,lsize*sizeof(fft5d_type)/sizeof(fft5d_rtype));
+	memcpy(initial,lin,lsize*sizeof(fft5d_type));
 	
 	int m;
 	struct fft5d_time_t ptimes={0};
@@ -148,10 +148,10 @@ Options:\n\
 }
 
 //initialize vector x of length l with random values
-void init_random(rtype* x, int l) {
+void init_random(fft5d_rtype* x, int l) {
 	int i;
 	for (i=0;i<l;i++) {
-		x[i]=((rtype)rand())/RAND_MAX;
+		x[i]=((fft5d_rtype)rand())/RAND_MAX;
 	}
 }
 
