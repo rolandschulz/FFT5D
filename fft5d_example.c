@@ -13,7 +13,7 @@
 #include <mpi.h>
 #include <math.h>
 #include <unistd.h>
-
+#include <time.h>
 
 
 #include "fft5d.h"
@@ -73,7 +73,7 @@ Options:\n\
 		M=atoi(argv[optind+1]);
 		N=atoi(argv[optind]);
 	} else {
-                printf("%s: incorrect number of parameters\n",argv[0],c);
+                printf("%s: incorrect number of parameters: %d\n",argv[0],c);
 		printf(helpmsg,argv[0],argv[0]);
 		abort();
 	} 
@@ -88,7 +88,7 @@ Options:\n\
 	int N1,M0,K0,K1,*coor;
 	fft5d_plan p1,p2;
 	
-	p1 = fft5d_plan_3d(rN,M,K,MPI_COMM_WORLD,P0, flags, &lin,&lout);
+	p1 = fft5d_plan_3d_cart(rN,M,K,MPI_COMM_WORLD,P0, flags, &lin,&lout,stderr);
 	fft5d_local_size(p1,&N1,&M0,&K0,&K1,&coor);
 	int lsize = N*M0*K1; 
 	initial=malloc(lsize*sizeof(fft5d_type)); 
@@ -97,9 +97,9 @@ Options:\n\
 	if (!(flags&FFT5D_ORDER_YZ)) {Nb=M;Mb=K;Kb=rN;}		
 	else {Nb=K;Mb=rN;Kb=M;}
 	
-	p2 = fft5d_plan_3d(Nb,Mb,Kb,MPI_COMM_WORLD,P0,  
-		(flags|FFT5D_BACKWARD|FFT5D_NOMALLOC)^FFT5D_ORDER_YZ,&lout,&lin);
-
+	p2 = fft5d_plan_3d_cart(Nb,Mb,Kb,MPI_COMM_WORLD,P0,  
+				(flags|FFT5D_BACKWARD|FFT5D_NOMALLOC)^FFT5D_ORDER_YZ,&lout,&lin,stderr);
+	//srand(time(0)+prank);
 	init_random((fft5d_rtype*)lin,lsize*sizeof(fft5d_type)/sizeof(fft5d_rtype));
 	memcpy(initial,lin,lsize*sizeof(fft5d_type));
 	
@@ -115,7 +115,13 @@ Options:\n\
 
 			if (prank==0) printf("Comparison\n");
 			
-			fft5d_compare_data(lin, initial, p2, 1, 1); 
+			fft5d_compare_data(lin, initial, p2, 1, 1); //test simple compare. or is data not same layout as start?
+			int i,j,k;
+			fft5d_rtype *in = (fft5d_rtype*) lin, *compare = (fft5d_rtype*)initial;
+			for (i=0;i<rN;i++) 
+			    for (j=0;j<M0;j++) 
+				for (k=0;k<K1;k++) 
+				    if (compare[i+j*rN+k*rN*M0]!=in[i+j*rN+k*rN*M0]/rN/M/K) printf("error %f %f\n",compare[i+j*rN+k*rN*M0],in[i+j*rN+k*rN*M0]/rN/M/K);
 			if (flags&FFT5D_DEBUG) { 
 				return 0;
 			} else {

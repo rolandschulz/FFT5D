@@ -13,7 +13,7 @@
 #include <mpi.h>
 #include <math.h>
 #include <unistd.h>
-
+#include <time.h>
 
 
 #include "fft5d.h"
@@ -34,8 +34,8 @@ int main(int argc,char** argv)
 	int N=0,K=0,M=0,P0=0,N_measure=10;
 	int x,y,z;
 	int flags = 0;
-	char c;
-
+	int c;
+	
 	const char* helpmsg = "\
 Usage: %s [OPTION] N\n\
    or: %s [OPTION] N M K \n\
@@ -64,6 +64,7 @@ Options:\n\
 		case 'P':P0=atoi(optarg);break;
 		case 'N':N_measure=atoi(optarg);break;
 		default:
+		        printf("Unknown Option: %c, %d\n\n",c,c);
 			printf(helpmsg,argv[0],argv[0]);
 			abort();
 		}
@@ -93,6 +94,7 @@ Options:\n\
 	if (flags&FFT5D_REALCOMPLEX) {
 		N = N/2+1;
 	}
+	srand(time(0)+prank);
 
 	if (ccheck) {
 		if (flags&FFT5D_REALCOMPLEX) {
@@ -132,7 +134,7 @@ Options:\n\
 	int N1,N0,M1,M0,K0,K1,*coor;
 	fft5d_plan plan;
 	if (!(flags&FFT5D_BACKWARD)) { //write in as standard X,Y,Z
-		plan = fft5d_plan_3d(rN,M,K,MPI_COMM_WORLD,P0, flags, &lin,&lout);
+	    plan = fft5d_plan_3d_cart(rN,M,K,MPI_COMM_WORLD,P0, flags, &lin,&lout,stderr);
 
 		fft5d_local_size(plan,&N1,&M0,&K0,&K1,&coor);
 		if (ccheck) {
@@ -148,7 +150,7 @@ Options:\n\
 	} else { //write in as tranposed Z,X,Y so that it is X,Y,Z as result
 		//neccessary for realcomplex to have X as real axes
 		if (!(flags&FFT5D_ORDER_YZ)) {
-			plan = fft5d_plan_3d(K,rN,M,MPI_COMM_WORLD,P0, flags,&lin,&lout);
+  		        plan = fft5d_plan_3d_cart(K,rN,M,MPI_COMM_WORLD,P0, flags,&lin,&lout,stderr);
 
 			fft5d_local_size(plan,&K1,&N0,&M0,&M1,&coor);
 			if (ccheck) {
@@ -163,7 +165,7 @@ Options:\n\
 				init_random((fft5d_rtype*)lin,K*N0*M1*sizeof(fft5d_type)/sizeof(fft5d_rtype));
 			}
 		} else {
-			plan = fft5d_plan_3d(M,K,rN,MPI_COMM_WORLD,P0, flags,&lin,&lout);
+ 		        plan = fft5d_plan_3d_cart(M,K,rN,MPI_COMM_WORLD,P0, flags,&lin,&lout,stderr);
 
 			fft5d_local_size(plan,&M1,&K0,&N0,&N1,&coor);
 			if (ccheck) {
