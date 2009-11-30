@@ -7,16 +7,12 @@
 #include <math.h>
 #include <assert.h>
 
-//#ifndef __USE_ISOC99 
-//#if ! ( __GNUC__ >= 4 && __GNUC_MINOR__ >= 3)
 inline double fmax(double a, double b){
 	return (a>b)?a:b;
 }
 inline double fmin(double a, double b){
 	return (a<b)?a:b;
 }
-//#endif
-//#endif
 
 //largest factor smaller than sqrt
 static int lfactor(int z) {  
@@ -41,7 +37,6 @@ static int lpfactor(int z) {
 }
 
 
-
 //NxMxK the size of the data
 //comm communicator to use for fft5d
 //P0 number of processor in 1st axes (can be null for automatic)
@@ -49,26 +44,21 @@ static int lpfactor(int z) {
 
 fft5d_plan fft5d_plan_3d(int NG, int MG, int KG, MPI_Comm comm[2], fft5d_flags flags, fft5d_type** rlin, fft5d_type** rlout, FILE* debug) {
         int P[2],bMaster,prank[2];
-	//comm is in the order of usage (depends on ORDER)
-	//prank and P are in the order of the decomposition
-	if ((flags&FFT5D_ORDER_YZ)) {  
-	    MPI_Comm_size(comm[0],&P[0]);
-	    MPI_Comm_size(comm[1],&P[1]);
-	    MPI_Comm_rank(comm[0],&prank[0]);
-	    MPI_Comm_rank(comm[1],&prank[1]);
-	} else {
-	    MPI_Comm_size(comm[1],&P[0]);
-	    MPI_Comm_size(comm[0],&P[1]);
-	    MPI_Comm_rank(comm[1],&prank[0]);
-	    MPI_Comm_rank(comm[0],&prank[1]);
-	}
+	//comm, prank and P are in the order of the decomposition (plan->cart is in the order of transposes)
+	MPI_Comm_size(comm[0],&P[0]);
+	MPI_Comm_size(comm[1],&P[1]);
+	MPI_Comm_rank(comm[0],&prank[0]);
+	MPI_Comm_rank(comm[1],&prank[1]);
+
 	bMaster=(prank[0]==0&&prank[1]==0);
 	
 	if (bMaster && debug) fprintf(debug,"FFT5D: Using %dx%d processor grid\n",P[0],P[1]);
 	
 	
 	if (bMaster) {
-   	        if (debug) fprintf(debug,"FFT5D: N: %d, M: %d, K: %d, P: %dx%d, real2complex: %d, backward: %d, order yz: %d, debug %d\n",NG,MG,KG,P[0],P[1],(flags&FFT5D_REALCOMPLEX)>0,(flags&FFT5D_BACKWARD)>0,(flags&FFT5D_ORDER_YZ)>0,(flags&FFT5D_DEBUG)>0);
+   	        if (debug) 
+		    fprintf(debug,"FFT5D: N: %d, M: %d, K: %d, P: %dx%d, real2complex: %d, backward: %d, order yz: %d, debug %d\n",
+			    NG,MG,KG,P[0],P[1],(flags&FFT5D_REALCOMPLEX)>0,(flags&FFT5D_BACKWARD)>0,(flags&FFT5D_ORDER_YZ)>0,(flags&FFT5D_DEBUG)>0);
 		if (fmax(fmax(lpfactor(NG),lpfactor(MG)),lpfactor(KG))>7) {
 			printf("WARNING: FFT very slow with prime factors larger 7\n");
 			printf("Change FFT size or in case you cannot change it look at\n");
@@ -137,11 +127,11 @@ fft5d_plan fft5d_plan_3d(int NG, int MG, int KG, MPI_Comm comm[2], fft5d_flags f
 	//along axis 1, 2 or both
 	
 	//int lsize = fmax(N[0]*M[0]*K[0]*nP[0],N[1]*M[1]*K[1]*nP[1]);
-	int lsize = fmax(N[0]*M[0]*K[0]*nP[0],fmax(N[1]*M[1]*K[1]*nP[1],C[2]*M[2]*K[2])); //TODO
+	int lsize = fmax(N[0]*M[0]*K[0]*nP[0],fmax(N[1]*M[1]*K[1]*nP[1],C[2]*M[2]*K[2])); 
 	//int lsize = fmax(C[0]*M[0]*K[0],fmax(C[1]*M[1]*K[1],C[2]*M[2]*K[2]));
 	fft5d_type* lin,*lout;
 	if (!(flags&FFT5D_NOMALLOC)) { 
-		lin = (fft5d_type*)FFTW(malloc)(sizeof(fft5d_type) * lsize); //localin	
+		lin = (fft5d_type*)FFTW(malloc)(sizeof(fft5d_type) * lsize); //local in	
 		lout = (fft5d_type*)FFTW(malloc)(sizeof(fft5d_type) * lsize); //local output
 	} else {
 		lin = *rlin;
@@ -172,13 +162,17 @@ fft5d_plan fft5d_plan_3d(int NG, int MG, int KG, MPI_Comm comm[2], fft5d_flags f
 					(FFTW(complex)*)output, &C[s], 1,   C[s], (flags&FFT5D_BACKWARD)?1:-1, fftwflags);
 		}
 	}
-		
+
+	if ((flags&FFT5D_ORDER_YZ)) { //plan->cart is in the order of transposes
+	    plan->cart[0]=comm[0]; plan->cart[1]=comm[1];
+	} else {
+	    plan->cart[1]=comm[0]; plan->cart[0]=comm[1];
+	}
 #ifdef FFT5D_MPI_TRANSPOSE
 	for (s=0;s<2;s++) {
-		plan->mpip[s] = FFTW(mpi_plan_many_transpose)(nP[s], nP[s], N[s]*K[s]*M[s]*2, 1, 1, (fft5d_rtype*)lin, (fft5d_rtype*)lout, comm[s], FFTW_PATIENT);
+		plan->mpip[s] = FFTW(mpi_plan_many_transpose)(nP[s], nP[s], N[s]*K[s]*M[s]*2, 1, 1, (fft5d_rtype*)lin, (fft5d_rtype*)lout, plan->comm[s], FFTW_PATIENT);
 	}
 #endif 
-	plan->cart[0]=comm[0]; plan->cart[1]=comm[1];
 
 	
 	plan->lin=lin;
@@ -200,41 +194,6 @@ fft5d_plan fft5d_plan_3d(int NG, int MG, int KG, MPI_Comm comm[2], fft5d_flags f
 	*rlin=lin;
 	*rlout=lout;
 	return plan;
-}
-
-//same as fft5d_plan_3d but with cartesian coordinator and automatic splitting of processor dimensions
-fft5d_plan fft5d_plan_3d_cart(int NG, int MG, int KG, MPI_Comm comm, int P0, fft5d_flags flags, fft5d_type** rlin, fft5d_type** rlout, FILE* debug) {
-	int size,prank;
-	MPI_Comm_size(comm,&size);
-	MPI_Comm_rank(comm,&prank);
-	if (P0==0) P0 = lfactor(size);
-	if (size%P0!=0) {
-		if (prank==0) printf("FFT5D: WARNING: Number of processors %d not evenly dividable by %d\n",size,P0);
-		P0 = lfactor(size);
-	}
-		
-	int P[] = {P0,size/P0}; //number of processors in the two dimensions
-	
-	//Difference between x-y-z regarding 2d decomposition is whether they are distributed 
-	//along axis 1, 2 or both
-	
-	int coor[2];
-	
-	int wrap[]={0,0};
-	MPI_Comm gcart;
-	MPI_Cart_create(comm,2,P,wrap,1,&gcart); //parameter 4: value 1: reorder
-	MPI_Cart_get(gcart,2,P,wrap,coor); 
-	int rdim1[] = {0,1}, rdim2[] = {1,0};
-	MPI_Comm cart[2];
-	if (!(flags&FFT5D_ORDER_YZ)) {
-		MPI_Cart_sub(gcart, rdim1 , &cart[0]);
-		MPI_Cart_sub(gcart, rdim2 , &cart[1]);
-	} else {
-		MPI_Cart_sub(gcart, rdim1 , &cart[1]);
-		MPI_Cart_sub(gcart, rdim2 , &cart[0]);
-	}
-
-	return fft5d_plan_3d(NG, MG, KG, cart, flags, rlin, rlout, debug); 
 }
 
 
@@ -303,6 +262,7 @@ static void joinAxesTrans12(fft5d_type* lin,const fft5d_type* lout,int N,int M,i
 		}
 	}
 }
+
 
 static void rotate(int x[]) {
 	int t=x[0];
@@ -380,48 +340,6 @@ static void compute_offsets(fft5d_plan plan, int xo[], int xl[], int xc[], int N
 	if (plan->flags&FFT5D_REALCOMPLEX && ((!(plan->flags&FFT5D_BACKWARD) && s==0) || (plan->flags&FFT5D_BACKWARD && s==2))) {
 		xl[0] = rC[s];
 	}
-}
-
-
-//prints in original coordinate system of data (as the input to FFT)
-void fft5d_compare_data(const fft5d_type* lin, const fft5d_type* in, fft5d_plan plan, int bothLocal, int normalize) {
-	int xo[3],xl[3],xc[3],NG[3];
-	int x,y,z,l;
-	int *coor = plan->coor;
-	int ll=2; //compare ll values per element (has to be 2 for complex)
-	if (plan->flags&FFT5D_REALCOMPLEX && plan->flags&FFT5D_BACKWARD) 
-		ll=1;
-		
-	compute_offsets(plan,xo,xl,xc,NG,2);
-	if (plan->flags&FFT5D_DEBUG) printf("Compare2\n");
-	for (z=0;z<xl[2];z++) {
-		for(y=0;y<xl[1];y++) {
-			if (plan->flags&FFT5D_DEBUG) printf("%d %d: ",coor[0],coor[1]);
-			for (x=0;x<xl[0];x++) {
-			    for (l=0;l<ll;l++) { //loop over real/complex parts
-					fft5d_rtype a,b;
-					a=((fft5d_rtype*)lin)[(z*xo[2]+y*xo[1])*2+x*xo[0]*ll+l];
-					printf("\n%d %d %d %d %d %d %d %d: %d %f\n",z,xo[2],y,xo[1],x,xo[0],ll,l,(z*xo[2]+y*xo[1])*2+x*xo[0]*ll+l,a);  
-					if (normalize) a/=plan->rC[0]*plan->rC[1]*plan->rC[2];
-					if (!bothLocal) 
-						b=((fft5d_rtype*)in)[((z+xc[2])*NG[0]*NG[1]+(y+xc[1])*NG[0])*2+(x+xc[0])*ll+l];
-					else 
-						b=((fft5d_rtype*)in)[(z*xo[2]+y*xo[1])*2+x*xo[0]*ll+l];
-					if (plan->flags&FFT5D_DEBUG) {
-						printf("%f %f, ",a,b);
-					} else {
-						if (fabs(a-b)>2*NG[0]*NG[1]*NG[2]*FFT5D_EPS) {
-							printf("result incorrect on %d,%d at %d,%d,%d: FFT5D:%f reference:%f\n",coor[0],coor[1],x,y,z,a,b);
-						}
-//						assert(fabs(a-b)<2*NG[0]*NG[1]*NG[2]*FFT5D_EPS);
-					}
-				}
-				if (plan->flags&FFT5D_DEBUG) printf(",");
-			}
-			if (plan->flags&FFT5D_DEBUG) printf("\n");
-		}
-	}
-	
 }
 
 //N, M, K not used anymore
@@ -543,3 +461,77 @@ void fft5d_local_size(fft5d_plan plan,int* N1,int* M0,int* K0,int* K1,int** coor
 	
 	*coor=plan->coor;
 }
+
+
+//same as fft5d_plan_3d but with cartesian coordinator and automatic splitting of processor dimensions
+fft5d_plan fft5d_plan_3d_cart(int NG, int MG, int KG, MPI_Comm comm, int P0, fft5d_flags flags, fft5d_type** rlin, fft5d_type** rlout, FILE* debug) {
+	int size,prank;
+	MPI_Comm_size(comm,&size);
+	MPI_Comm_rank(comm,&prank);
+	if (P0==0) P0 = lfactor(size);
+	if (size%P0!=0) {
+		if (prank==0) printf("FFT5D: WARNING: Number of processors %d not evenly dividable by %d\n",size,P0);
+		P0 = lfactor(size);
+	}
+		
+	int P[] = {P0,size/P0}; //number of processors in the two dimensions
+	
+	//Difference between x-y-z regarding 2d decomposition is whether they are distributed 
+	//along axis 1, 2 or both
+	
+	int coor[2];
+	
+	int wrap[]={0,0};
+	MPI_Comm gcart;
+	MPI_Cart_create(comm,2,P,wrap,1,&gcart); //parameter 4: value 1: reorder
+	MPI_Cart_get(gcart,2,P,wrap,coor); 
+	int rdim1[] = {0,1}, rdim2[] = {1,0};
+	MPI_Comm cart[2];
+	MPI_Cart_sub(gcart, rdim1 , &cart[0]);
+	MPI_Cart_sub(gcart, rdim2 , &cart[1]);
+
+	return fft5d_plan_3d(NG, MG, KG, cart, flags, rlin, rlout, debug); 
+}
+
+
+
+//prints in original coordinate system of data (as the input to FFT)
+void fft5d_compare_data(const fft5d_type* lin, const fft5d_type* in, fft5d_plan plan, int bothLocal, int normalize) {
+	int xo[3],xl[3],xc[3],NG[3];
+	int x,y,z,l;
+	int *coor = plan->coor;
+	int ll=2; //compare ll values per element (has to be 2 for complex)
+	if (plan->flags&FFT5D_REALCOMPLEX && plan->flags&FFT5D_BACKWARD) 
+		ll=1;
+		
+	compute_offsets(plan,xo,xl,xc,NG,2);
+	if (plan->flags&FFT5D_DEBUG) printf("Compare2\n");
+	for (z=0;z<xl[2];z++) {
+		for(y=0;y<xl[1];y++) {
+			if (plan->flags&FFT5D_DEBUG) printf("%d %d: ",coor[0],coor[1]);
+			for (x=0;x<xl[0];x++) {
+			    for (l=0;l<ll;l++) { //loop over real/complex parts
+					fft5d_rtype a,b;
+					a=((fft5d_rtype*)lin)[(z*xo[2]+y*xo[1])*2+x*xo[0]*ll+l];
+					if (normalize) a/=plan->rC[0]*plan->rC[1]*plan->rC[2];
+					if (!bothLocal) 
+						b=((fft5d_rtype*)in)[((z+xc[2])*NG[0]*NG[1]+(y+xc[1])*NG[0])*2+(x+xc[0])*ll+l];
+					else 
+						b=((fft5d_rtype*)in)[(z*xo[2]+y*xo[1])*2+x*xo[0]*ll+l];
+					if (plan->flags&FFT5D_DEBUG) {
+						printf("%f %f, ",a,b);
+					} else {
+						if (fabs(a-b)>2*NG[0]*NG[1]*NG[2]*FFT5D_EPS) {
+							printf("result incorrect on %d,%d at %d,%d,%d: FFT5D:%f reference:%f\n",coor[0],coor[1],x,y,z,a,b);
+						}
+//						assert(fabs(a-b)<2*NG[0]*NG[1]*NG[2]*FFT5D_EPS);
+					}
+				}
+				if (plan->flags&FFT5D_DEBUG) printf(",");
+			}
+			if (plan->flags&FFT5D_DEBUG) printf("\n");
+		}
+	}
+	
+}
+

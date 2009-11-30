@@ -116,12 +116,7 @@ Options:\n\
 			if (prank==0) printf("Comparison\n");
 			
 			fft5d_compare_data(lin, initial, p2, 1, 1); //test simple compare. or is data not same layout as start?
-			int i,j,k;
-			fft5d_rtype *in = (fft5d_rtype*) lin, *compare = (fft5d_rtype*)initial;
-			for (i=0;i<rN;i++) 
-			    for (j=0;j<M0;j++) 
-				for (k=0;k<K1;k++) 
-				    if (compare[i+j*rN+k*rN*M0]!=in[i+j*rN+k*rN*M0]/rN/M/K) printf("error %f %f\n",compare[i+j*rN+k*rN*M0],in[i+j*rN+k*rN*M0]/rN/M/K);
+
 			if (flags&FFT5D_DEBUG) { 
 				return 0;
 			} else {

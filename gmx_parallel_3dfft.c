@@ -16,20 +16,18 @@ gmx_parallel_3dfft_init   (gmx_parallel_3dfft_t *    pfft_setup,
     snew(*pfft_setup,1);
     if (bReproducible) flags |= FFT5D_NOMEASURE; 
     
-    MPI_Comm *comm1,*comm2,rcomm[]={comm[1],comm[0]};
+    MPI_Comm rcomm[]={comm[1],comm[0]};
     int Nb,Mb,Kb; //dimension for backtransform (in starting order)
     
     if (!(flags&FFT5D_ORDER_YZ)) { //currently always true because ORDER_YZ never set
 	Nb=M;Mb=K;Kb=rN;		
-	comm1=rcomm;comm2=comm;
     } else {
 	Nb=K;Mb=rN;Kb=M;
-	comm1=comm;comm2=rcomm;
     }
     
-    (*pfft_setup)->p1 = fft5d_plan_3d(rN,M,K,comm1, flags, (fft5d_type**)real_data, (fft5d_type**)complex_data,debug);
+    (*pfft_setup)->p1 = fft5d_plan_3d(rN,M,K,rcomm, flags, (fft5d_type**)real_data, (fft5d_type**)complex_data,debug);
     
-    (*pfft_setup)->p2 = fft5d_plan_3d(Nb,Mb,Kb,comm2,
+    (*pfft_setup)->p2 = fft5d_plan_3d(Nb,Mb,Kb,rcomm,
 				      (flags|FFT5D_BACKWARD|FFT5D_NOMALLOC)^FFT5D_ORDER_YZ, (fft5d_type**)complex_data, (fft5d_type**)real_data,debug);
     
     return (*pfft_setup)->p1 != 0 && (*pfft_setup)->p2 !=0;
