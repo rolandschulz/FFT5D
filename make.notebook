@@ -1,5 +1,6 @@
 CC=mpicc
-CFLAGS =	-O2 -g -Wall  -funsigned-char
+#CFLAGS =	-O2 -g -Wall  -funsigned-char
+CFLAGS =	-O0 -g -Wall  -funsigned-char
 LIBS = -lfftw3 
 
 include make.base
