@@ -87,8 +87,18 @@ Options:\n\
 	fft5d_type *lin,*lout,*initial;
 	int N1,M0,K0,K1,*coor;
 	fft5d_plan p1,p2;
-	
-	p1 = fft5d_plan_3d_cart(rN,M,K,MPI_COMM_WORLD,P0, flags, &lin,&lout,stderr);
+
+#ifndef GMX
+	{
+	    char fn[200];
+	    if (flags&FFT5D_DEBUG) {
+		sprintf(fn,"debug_%d",prank);
+		debug=fopen(fn,"w");
+	    }
+	}
+#endif
+
+	p1 = fft5d_plan_3d_cart(rN,M,K,MPI_COMM_WORLD,P0, flags, &lin,&lout);
 	fft5d_local_size(p1,&N1,&M0,&K0,&K1,&coor);
 	int lsize = N*M0*K1; 
 	initial=malloc(lsize*sizeof(fft5d_type)); 
@@ -96,15 +106,16 @@ Options:\n\
 	int Nb,Mb,Kb; //dimension for backtransform (in starting order)
 	if (!(flags&FFT5D_ORDER_YZ)) {Nb=M;Mb=K;Kb=rN;}		
 	else {Nb=K;Mb=rN;Kb=M;}
-	
+
 	p2 = fft5d_plan_3d_cart(Nb,Mb,Kb,MPI_COMM_WORLD,P0,  
-				(flags|FFT5D_BACKWARD|FFT5D_NOMALLOC)^FFT5D_ORDER_YZ,&lout,&lin,stderr);
+				(flags|FFT5D_BACKWARD|FFT5D_NOMALLOC)^FFT5D_ORDER_YZ,&lout,&lin);
 	//srand(time(0)+prank);
+	srand(/*time(0)+*/prank+1023);
 	init_random((fft5d_rtype*)lin,lsize*sizeof(fft5d_type)/sizeof(fft5d_rtype));
 	memcpy(initial,lin,lsize*sizeof(fft5d_type));
 	
 	int m;
-	struct fft5d_time_t ptimes={0};
+	struct fft5d_time_t ptimes={0,0,0,0};
 	double ttime=0;
 	for (m=0;m<N_measure;m++) {
 	        ttime-=MPI_Wtime();
@@ -126,7 +137,7 @@ Options:\n\
 
 		}
 	} // end measure
-	struct fft5d_time_t otimes={0};
+	struct fft5d_time_t otimes={0,0,0,0};
 	double ottime;
 	ptimes.fft/=N_measure;ptimes.local/=N_measure;ptimes.mpi1/=N_measure;ptimes.mpi2/=N_measure;
 	ttime/=N_measure;

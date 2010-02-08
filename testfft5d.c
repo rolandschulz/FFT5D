@@ -1,10 +1,10 @@
-//============================================================================
-// Name        : fft.cpp
-// Author      : Roland Schulz
-// Version     :
-// Copyright   : GPL
-// Description : Test and Timing for FFT5D
-//============================================================================
+/*============================================================================
+  Name        : fft.cpp
+  Author      : Roland Schulz
+  Version     :
+  Copyright   : GPL
+  Description : Test and Timing for FFT5D
+  ============================================================================*/
 
 #include <stdio.h>
 #include <assert.h>
@@ -94,7 +94,8 @@ Options:\n\
     if (flags&FFT5D_REALCOMPLEX) {
 	N = N/2+1;
     }
-    srand(time(0)/*+prank*/);
+    /*srand(time(0+prank);*/
+    srand(prank);
 
     if (ccheck) {
 	if (flags&FFT5D_REALCOMPLEX) {
@@ -109,7 +110,7 @@ Options:\n\
 
 	init_random((fft5d_rtype*)in,N*M*K*sizeof(fft5d_type)/sizeof(fft5d_rtype));
 
-	if (flags&FFT5D_BACKWARD && flags&FFT5D_REALCOMPLEX) { //in[0][y][z] needs to be real (otherwise data not conjugate complex)
+	if (flags&FFT5D_BACKWARD && flags&FFT5D_REALCOMPLEX) { /*in[0][y][z] needs to be real (otherwise data not conjugate complex)*/
 	    for (y=0;y<M;y++) {
 		for (z=0;z<K;z++) {
 		    ((fft5d_rtype*)in)[(y*N+z*M*N)*2+1]=0;
@@ -133,8 +134,8 @@ Options:\n\
     fft5d_type *lin,*lout;
     int N1,N0,M1,M0,K0,K1,*coor;
     fft5d_plan plan;
-    if (!(flags&FFT5D_BACKWARD)) { //write in as standard X,Y,Z
-	plan = fft5d_plan_3d_cart(rN,M,K,MPI_COMM_WORLD,P0, flags, &lin,&lout,stderr);
+    if (!(flags&FFT5D_BACKWARD)) { /*write in as standard X,Y,Z*/
+	plan = fft5d_plan_3d_cart(rN,M,K,MPI_COMM_WORLD,P0, flags, &lin,&lout);
 
 	fft5d_local_size(plan,&N1,&M0,&K0,&K1,&coor);
 	if (ccheck) {
@@ -142,15 +143,17 @@ Options:\n\
 		for (y=0;y<plan->pM[0];y++) { 
 		    for (z=0;z<plan->pK[0];z++) { 
 			lin[x+y*N+z*N*M0]=in[x+(plan->oM[0]+y)*N+(plan->oK[0]+z)*N*M];  
+			/*fprintf(stderr,"%f+%fi ", ((fft5d_rtype*)in)[(x+(plan->oM[0]+y)*N+(plan->oK[0]+z)*N*M)*2],((fft5d_rtype*)in)[(x+(plan->oM[0]+y)*N+(plan->oK[0]+z)*N*M)*2+1]);*/
 		    }
 		}
-	    }} else {
+	    }
+	} else {
 	    init_random((fft5d_rtype*)lin,N*M0*K1*sizeof(fft5d_type)/sizeof(fft5d_rtype));
 	}
-    } else { //write in as tranposed Z,X,Y so that it is X,Y,Z as result
-	//neccessary for realcomplex to have X as real axes
+    } else { /*write in as tranposed Z,X,Y so that it is X,Y,Z as result*/
+	/*neccessary for realcomplex to have X as real axes*/
 	if (!(flags&FFT5D_ORDER_YZ)) {
-	    plan = fft5d_plan_3d_cart(K,rN,M,MPI_COMM_WORLD,P0, flags,&lin,&lout,stderr);
+	    plan = fft5d_plan_3d_cart(K,rN,M,MPI_COMM_WORLD,P0, flags,&lin,&lout);
 		    
 	    fft5d_local_size(plan,&K1,&N0,&M0,&M1,&coor);
 	    if (ccheck) {
@@ -165,7 +168,7 @@ Options:\n\
 		init_random((fft5d_rtype*)lin,K*N0*M1*sizeof(fft5d_type)/sizeof(fft5d_rtype));
 	    }
 	} else {
-	    plan = fft5d_plan_3d_cart(M,K,rN,MPI_COMM_WORLD,P0, flags,&lin,&lout,stderr);
+	    plan = fft5d_plan_3d_cart(M,K,rN,MPI_COMM_WORLD,P0, flags,&lin,&lout);
 
 	    fft5d_local_size(plan,&M1,&K0,&N0,&N1,&coor);
 	    if (ccheck) {
@@ -227,9 +230,9 @@ Options:\n\
 			}
 		    }
 		}
-		//print("in",in,N,2,ld);
-		//print("tmp",tmp,N,2,ld);
-		//assert(test_equal(in,tmp,N*N*N,N,2,N));
+		/*print("in",in,N,2,ld);
+		  print("tmp",tmp,N,2,ld);
+		  assert(test_equal(in,tmp,N*N*N,N,2,N));*/
 
 		if (prank==0) printf("Comparison\n");
 		fft5d_compare_data(lout, in, plan,0,0);
@@ -241,14 +244,14 @@ Options:\n\
 	    }
 
 	}
-    } // end measure
+    } /* end measure */
     free(ptimes);	
     avg(time_local,N_measure);
     avg(time_fft,N_measure);
     avg(time_mpi1,N_measure);
     avg(time_mpi2,N_measure);
 
-    //printf("avg: %lf\n",time_mpi1[0]);
+    /*printf("avg: %lf\n",time_mpi1[0]);*/
 
     double times[]={time_local[0],time_fft[0],time_mpi1[0],time_mpi2[0],
 		    time_local[1],time_fft[1],time_mpi1[1],time_mpi2[1]},otimes[sizeof(times)/sizeof(double)];
@@ -273,7 +276,7 @@ Options:\n\
     return 0;	
 }
 
-//initialize vector x of length l with random values
+/*initialize vector x of length l with random values*/
 void init_random(fft5d_rtype* x, int l) {
     int i;
     for (i=0;i<l;i++) {
@@ -282,7 +285,7 @@ void init_random(fft5d_rtype* x, int l) {
 }
 
 
-//average d of length n excluding first element, writing result in d[0]
+/*average d of length n excluding first element, writing result in d[0]*/
 void avg(double* d, int n) { 
     int i;
     d[0]=0;

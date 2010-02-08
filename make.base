@@ -1,6 +1,6 @@
 OBJS =		fft5d.o
 TARGETOBJS = testfft5d.o fft5d_example.o
-TARGET =	testfft5d fft5d_example
+TARGET =	fft5d_example
 
 all:	$(TARGET)
 
