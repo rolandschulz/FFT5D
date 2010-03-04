@@ -1,10 +1,10 @@
-//============================================================================
-// Name        : fft.cpp
-// Author      : Roland Schulz
-// Version     :
-// Copyright   : GPL
-// Description : Test and Timing for FFT5D
-//============================================================================
+/*============================================================================
+ * Name        : fft.cpp
+ * Author      : Roland Schulz
+ * Version     :
+ * Copyright   : GPL
+ * Description : Test and Timing for FFT5D
+ ============================================================================*/
 
 #include <stdio.h>
 #include <assert.h>
@@ -18,22 +18,50 @@
 
 #include "fft5d.h"
 
-void init_random(fft5d_rtype* x, int l);
-void avg(double* d, int n);
+/*initialize vector x of length l with random values*/
+static void init_random(fft5d_rtype* x, int l) {
+	int i;
+	for (i=0;i<l;i++) {
+		x[i]=((fft5d_rtype)rand())/RAND_MAX;
+	}
+}
 
+/*average d of length n excluding first element, writing result in d[0]*/
+/*static void avg(double* d, int n) { 
+    int i;
+    d[0]=0;
+    for (i=1;i<n;i++) {
+	d[0]+=d[i];
+    }
+    d[0]/=(n-1);
+    d[1]=(d[1]-d[0])*(d[1]-d[0]);
+    for (i=2;i<n;i++) {
+	d[1]+=(d[i]-d[0])*(d[i]-d[0]);
+    }
+    d[0]*=1000;
+    d[1]=1000000 * d[1]/(n-1);
+}*/
 
 
 int main(int argc,char** argv)
 {
 	int size,prank;
-	MPI_Init( &argc, &argv );
-	MPI_Comm_size(MPI_COMM_WORLD,&size);
-	MPI_Comm_rank(MPI_COMM_WORLD,&prank);
 
-
-	int N=0,K=0,M=0,P0=0,N_measure=10;
+	int N=0,K=0,M=0,P0=0,N_measure=10,rN;
 	int flags = 0;
-	int c;
+	int c,lsize;
+	int Nb,Mb,Kb; /*dimension for backtransform (in starting order)*/
+
+	fft5d_type *lin,*lout,*initial;
+	int N1,M0,K0,K1,*coor;
+	fft5d_plan p1,p2;
+
+	int m;
+	struct fft5d_time_t ptimes={0,0,0,0};
+	double ttime=0;
+
+	struct fft5d_time_t otimes={0,0,0,0};
+	double ottime;
 
 	const char* helpmsg = "\
 Usage: %s [OPTION] N\n\
@@ -52,6 +80,10 @@ Options:\n\
   -O        use YZ order first (default: ZY order)\n\
             see manual\n";
 		
+	MPI_Init( &argc, &argv );
+	MPI_Comm_size(MPI_COMM_WORLD,&size);
+	MPI_Comm_rank(MPI_COMM_WORLD,&prank);
+
 	while ((c = getopt (argc, argv, "BORhDP:N:")) != -1)
 
 		switch (c) { 
@@ -79,15 +111,12 @@ Options:\n\
 	} 
 
 
-	int rN=N;
+	rN=N;
 	if (flags&FFT5D_REALCOMPLEX) {
 		N = N/2+1;
 	}
 
-	fft5d_type *lin,*lout,*initial;
-	int N1,M0,K0,K1,*coor;
-	fft5d_plan p1,p2;
-
+	
 #ifndef GMX
 	{
 	    char fn[200];
@@ -100,23 +129,19 @@ Options:\n\
 
 	p1 = fft5d_plan_3d_cart(rN,M,K,MPI_COMM_WORLD,P0, flags, &lin,&lout);
 	fft5d_local_size(p1,&N1,&M0,&K0,&K1,&coor);
-	int lsize = N*M0*K1; 
+	lsize = N*M0*K1; 
 	initial=malloc(lsize*sizeof(fft5d_type)); 
 	
-	int Nb,Mb,Kb; //dimension for backtransform (in starting order)
 	if (!(flags&FFT5D_ORDER_YZ)) {Nb=M;Mb=K;Kb=rN;}		
 	else {Nb=K;Mb=rN;Kb=M;}
 
 	p2 = fft5d_plan_3d_cart(Nb,Mb,Kb,MPI_COMM_WORLD,P0,  
 				(flags|FFT5D_BACKWARD|FFT5D_NOMALLOC)^FFT5D_ORDER_YZ,&lout,&lin);
-	//srand(time(0)+prank);
+	/*srand(time(0)+prank);*/
 	srand(/*time(0)+*/prank+1023);
 	init_random((fft5d_rtype*)lin,lsize*sizeof(fft5d_type)/sizeof(fft5d_rtype));
 	memcpy(initial,lin,lsize*sizeof(fft5d_type));
 	
-	int m;
-	struct fft5d_time_t ptimes={0,0,0,0};
-	double ttime=0;
 	for (m=0;m<N_measure;m++) {
 	        ttime-=MPI_Wtime();
 		fft5d_execute(p1, &ptimes);
@@ -126,7 +151,7 @@ Options:\n\
 
 			if (prank==0) printf("Comparison\n");
 			
-			fft5d_compare_data(lin, initial, p2, 1, 1); //test simple compare. or is data not same layout as start?
+			fft5d_compare_data(lin, initial, p2, 1, 1); /*test simple compare. or is data not same layout as start?*/
 
 			if (flags&FFT5D_DEBUG) { 
 				return 0;
@@ -136,18 +161,16 @@ Options:\n\
 		
 
 		}
-	} // end measure
-	struct fft5d_time_t otimes={0,0,0,0};
-	double ottime;
+	} /* end measure*/
 	ptimes.fft/=N_measure;ptimes.local/=N_measure;ptimes.mpi1/=N_measure;ptimes.mpi2/=N_measure;
 	ttime/=N_measure;
-	//printf("avg: %lf\n",time_mpi1[0]);
+	/*printf("avg: %lf\n",time_mpi1[0]);*/
 
 	MPI_Reduce(&ptimes,&otimes,sizeof(ptimes)/sizeof(double),MPI_DOUBLE,MPI_MAX,0,MPI_COMM_WORLD);
 	MPI_Reduce(&ttime,&ottime,1,MPI_DOUBLE,MPI_MAX,0,MPI_COMM_WORLD);
 
 	if(prank==0) {
-		printf("Timing (ms): local: %lf, fft: %lf, mpi1: %lf, mpi2: %lf, total: %lf\n",
+		printf("Timing (ms): local: %f, fft: %f, mpi1: %f, mpi2: %f, total: %f\n",
 				otimes.local*1000,otimes.fft*1000,otimes.mpi1*1000,otimes.mpi2*1000,ottime*1000);
 	}
 	
@@ -158,13 +181,4 @@ Options:\n\
 
 	return 0;	
 }
-
-//initialize vector x of length l with random values
-void init_random(fft5d_rtype* x, int l) {
-	int i;
-	for (i=0;i<l;i++) {
-		x[i]=((fft5d_rtype)rand())/RAND_MAX;
-	}
-}
-
 

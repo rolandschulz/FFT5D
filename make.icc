@@ -1,5 +1,5 @@
-CC=icc
-CFLAGS =	-fast -Wall -fmessage-length=0
+CC=mpicc
+CFLAGS =	-fast -fmessage-length=0  -DFFT5D_SINGLE
 LIBS = -lfftw3f
 
 include make.base

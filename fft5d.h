@@ -7,7 +7,7 @@
 #include <config.h>
 #endif
 
-//#define GMX
+/*#define GMX*/
 
 #ifndef GMX
 #define GMX_LIB_MPI
@@ -37,7 +37,9 @@ FILE* debug;
 
 
 #ifdef GMX
-#ifndef GMX_DOUBLE  //TODO how to not how have to do this GMX specific in here? can't be in gmx_parallel_3dfft.h because it has to be also be set when included from fft5d.c
+#ifndef GMX_DOUBLE  /*TODO how to not how have to do this GMX specific in here? 
+can't be in gmx_parallel_3dfft.h because it has to be also be set when included from fft5d.c */
+
 #define FFT5D_SINGLE
 #endif
 #endif
@@ -80,30 +82,30 @@ struct fft5d_plan_t {
 #endif
 	MPI_Comm cart[2];
 
-	int N[3],M[3],K[3]; //local length in transposed coordinate system (if not divisisable max)
-        int pN[3],pM[3], pK[3]; //local length - not max but length for this processor
-        int oM[3],oK[3]; //offset for current processor
-        int *iNin[3],*oNin[3],*iNout[3],*oNout[3]; /*size for each processor (if divisisable=max) for out(=split) 
-                 and in (=join) and offsets in transposed coordinate system*/
-	int C[3],rC[3]; //global length (of the one global axes) 
-	//C!=rC for real<->complex. then C=rC/2 but with potential padding
-	int P[2]; //size of processor grid
-//	int fftorder;
-//	int direction;
-//	int realcomplex;
-	fft5d_flags flags;
-	//int N0,N1,M0,M1,K0,K1;
+    int N[3],M[3],K[3]; /*local length in transposed coordinate system (if not divisisable max)*/
+    int pN[3],pM[3], pK[3]; /*local length - not max but length for this processor*/
+    int oM[3],oK[3]; /*offset for current processor*/
+    int *iNin[3],*oNin[3],*iNout[3],*oNout[3]; /*size for each processor (if divisisable=max) for out(=split) 
+						 and in (=join) and offsets in transposed coordinate system*/
+    int C[3],rC[3]; /*global length (of the one global axes) */
+    /* C!=rC for real<->complex. then C=rC/2 but with potential padding*/
+    int P[2]; /*size of processor grid*/
+/*	int fftorder;*/
+/*	int direction;*/
+/*	int realcomplex;*/
+	int flags;
+    /*int N0,N1,M0,M1,K0,K1;*/
 	int NG,MG,KG;
-	//int P[2];
+    /*int P[2];*/
 	int coor[2];
 }; 
 
 typedef struct fft5d_plan_t *fft5d_plan;
 
 void fft5d_execute(fft5d_plan plan,fft5d_time times);
-fft5d_plan fft5d_plan_3d(int N, int M, int K, MPI_Comm comm[2], fft5d_flags flags, fft5d_type** lin, fft5d_type** lin2);
+fft5d_plan fft5d_plan_3d(int N, int M, int K, MPI_Comm comm[2], int flags, fft5d_type** lin, fft5d_type** lin2);
 void fft5d_local_size(fft5d_plan plan,int* N1,int* M0,int* K0,int* K1,int** coor);
 void fft5d_destroy(fft5d_plan plan);
-fft5d_plan fft5d_plan_3d_cart(int N, int M, int K, MPI_Comm comm, int P0, fft5d_flags flags, fft5d_type** lin, fft5d_type** lin2);
+fft5d_plan fft5d_plan_3d_cart(int N, int M, int K, MPI_Comm comm, int P0, int flags, fft5d_type** lin, fft5d_type** lin2);
 void fft5d_compare_data(const fft5d_type* lin, const fft5d_type* in, fft5d_plan plan, int bothLocal, int normarlize);
 #endif /*FFTLIB_H_*/
