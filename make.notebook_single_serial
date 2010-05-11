@@ -1,0 +1,8 @@
+CC=cc
+#CFLAGS =  -g -Wall  -I $(HOME)/usr/include/  -DFFT5D_SINGLE  -ansi -pedantic -D_POSIX_C_SOURCE=200112L
+CFLAGS =  -I $(HOME)/usr/include/  -DFFT5D_SINGLE  -O3 -fomit-frame-pointer -finline-functions -Wall -Wno-unused -msse2 -funroll-all-loops -std=gnu99
+LIBS = -lfftw3f -L $(HOME)/usr/lib -lm
+
+include make.base
+
+

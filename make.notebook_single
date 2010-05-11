@@ -1,0 +1,11 @@
+CC=mpicc
+#CFLAGS =  -g -Wall  -I $(HOME)/usr/include/  -DFFT5D_SINGLE  -ansi -pedantic -D_POSIX_C_SOURCE=200112L
+#CFLAGS = -I. -I $(HOME)/usr/include/  -DFFT5D_SINGLE  -O3 -fomit-frame-pointer -finline-functions -Wall -Wno-unused -msse2 -funroll-all-loops -std=gnu99 -DGMX_MPI -D HAVE_CONFIG_H
+CFLAGS = -I. -DFFT5D_SINGLE  -O3 -fomit-frame-pointer -finline-functions -Wall -Wno-unused -msse2 -funroll-all-loops -std=gnu99 -D HAVE_CONFIG_H -D GMX_FFT_FFTW3
+#CFLAGS = -I. -DFFT5D_SINGLE -Wall -g -std=gnu99 -D HAVE_CONFIG_H -D GMX_FFT_FFTW3
+
+LIBS = -lfftw3f -L $(HOME)/usr/lib -lm
+
+include make.base
+
+

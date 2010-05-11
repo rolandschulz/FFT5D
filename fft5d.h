@@ -1,62 +1,58 @@
 #ifndef FFT5D_H_     
 #define FFT5D_H_
 
-#include <complex.h>
-
 #ifdef HAVE_CONFIG_H
 #include <config.h>
 #endif
 
-/*#define GMX*/
-
-#ifndef GMX
-#define GMX_LIB_MPI
-#define GMX_FFT_FFTW3
+#ifdef NOGMX
+/*#define GMX_MPI*/
+/*#define GMX_FFT_FFTW3*/
 FILE* debug;
 #endif
 
-#ifdef GMX_LIB_MPI
-#include <mpi.h>
-#endif
-#ifdef GMX_THREADS
-#include "tmpi.h"
+#include <types/commrec.h>
+#ifndef GMX_LIB_MPI
+double MPI_Wtime();
 #endif
 
 #ifdef GMX_FFT_FFTW3
 #include <fftw3.h>
-#ifdef FFT5D_MPI_TRANSPOSE
-#include <fftw3-mpi.h>
 #endif
-#endif
+/* TODO: optional wrapper
 #ifdef GMX_FFT_MKL
 #include <fftw/fftw3.h>
 #ifdef FFT5D_MPI_TRANSPOSE
 #include <fftw/fftw3-mpi.h>
 #endif
 #endif
+*/
 
-
-#ifdef GMX
-#ifndef GMX_DOUBLE  /*TODO how to not how have to do this GMX specific in here? 
-can't be in gmx_parallel_3dfft.h because it has to be also be set when included from fft5d.c */
-
+#ifndef NOGMX
+#ifndef GMX_DOUBLE  
 #define FFT5D_SINGLE
 #endif
 #endif
 
 #ifdef FFT5D_SINGLE
 #define FFTW(x) fftwf_##x
-typedef FFTW(complex) fft5d_type; 
 typedef float fft5d_rtype;  
 #define FFT5D_EPS __FLT_EPSILON__
 #define FFT5D_MPI_RTYPE MPI_FLOAT 
 #else
 #define FFTW(x) fftw_##x
-typedef FFTW(complex) fft5d_type; 
 typedef double fft5d_rtype; 
 #define FFT5D_EPS __DBL_EPSILON__
 #define FFT5D_MPI_RTYPE MPI_DOUBLE 
 #endif
+
+#ifdef NOGMX
+typedef fft5d_rtype real;
+#endif
+#include "gmxcomplex.h"
+typedef t_complex fft5d_type; 
+#include "gmx_fft.h"
+
 
 struct fft5d_time_t {
 	double fft,local,mpi1,mpi2;
@@ -76,8 +72,10 @@ typedef enum fft5d_flags_t {
 struct fft5d_plan_t {
 	fft5d_type *lin;
 	fft5d_type *lout;
-	FFTW(plan) p1d[3];
-#ifdef FFT5D_MPI_TRANSPOSE
+        gmx_fft_t p1d[3];   /*1D plans*/
+#ifdef GMX_FFT_FFTW3 
+        FFTW(plan) p2d;  /*2D plan: used for 1D decomposition if FFT supports transposed output*/
+        FFTW(plan) p3d;  /*3D plan: used for 0D decomposition if FFT supports transposed output*/
 	FFTW(plan) mpip[2];
 #endif
 	MPI_Comm cart[2];

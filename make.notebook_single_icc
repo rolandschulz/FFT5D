@@ -1,0 +1,10 @@
+CC=mpicc
+#CFLAGS =  -g -Wall  -I $(HOME)/usr/include/  -DFFT5D_SINGLE  -ansi -pedantic -D_POSIX_C_SOURCE=200112L
+#CFLAGS = -I. -I $(HOME)/usr/include/  -DFFT5D_SINGLE  -O3 -fomit-frame-pointer -finline-functions -Wall -Wno-unused -msse2 -funroll-all-loops -std=gnu99 -DGMX_MPI -D HAVE_CONFIG_H
+CFLAGS = -I. -DFFT5D_SINGLE -Wall -g -std=gnu99 -D HAVE_CONFIG_H -DGMX_FFT_MKL -I/opt/intel/Compiler/11.0/074/mkl/include 
+
+LIBS = -L/opt/intel/Compiler/11.0/074/mkl/lib/em64t/ -lm -lmkl_intel_lp64 -liomp5 -lmkl_sequential -lmkl_core 
+
+include make.base
+
+

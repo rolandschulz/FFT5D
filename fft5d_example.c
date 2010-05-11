@@ -10,7 +10,6 @@
 #include <assert.h>
 #include <string.h>
 #include <stdlib.h>
-#include <mpi.h>
 #include <math.h>
 #include <unistd.h>
 #include <time.h>
@@ -45,7 +44,7 @@ static void init_random(fft5d_rtype* x, int l) {
 
 int main(int argc,char** argv)
 {
-	int size,prank;
+	int size=1,prank=0;
 
 	int N=0,K=0,M=0,P0=0,N_measure=10,rN;
 	int flags = 0;
@@ -57,7 +56,7 @@ int main(int argc,char** argv)
 	fft5d_plan p1,p2;
 
 	int m;
-	struct fft5d_time_t ptimes={0,0,0,0};
+	struct fft5d_time_t ptimes1={0,0,0,0},ptimes2={0,0,0,0},ptimes={0,0,0,0};
 	double ttime=0;
 
 	struct fft5d_time_t otimes={0,0,0,0};
@@ -80,9 +79,13 @@ Options:\n\
   -O        use YZ order first (default: ZY order)\n\
             see manual\n";
 		
+#ifdef GMX_MPI
 	MPI_Init( &argc, &argv );
 	MPI_Comm_size(MPI_COMM_WORLD,&size);
 	MPI_Comm_rank(MPI_COMM_WORLD,&prank);
+#else
+#define MPI_COMM_WORLD 0
+#endif
 
 	while ((c = getopt (argc, argv, "BORhDP:N:")) != -1)
 
@@ -144,8 +147,8 @@ Options:\n\
 	
 	for (m=0;m<N_measure;m++) {
 	        ttime-=MPI_Wtime();
-		fft5d_execute(p1, &ptimes);
-		fft5d_execute(p2, &ptimes);
+		fft5d_execute(p1, &ptimes1);  //TODO this mixes 
+		fft5d_execute(p2, &ptimes2);
 		ttime+=MPI_Wtime();
 		if (m==0) {
 
@@ -162,12 +165,20 @@ Options:\n\
 
 		}
 	} /* end measure*/
-	ptimes.fft/=N_measure;ptimes.local/=N_measure;ptimes.mpi1/=N_measure;ptimes.mpi2/=N_measure;
+	ptimes.fft=(ptimes1.fft+ptimes2.fft)/N_measure;
+	ptimes.local=(ptimes1.local+ptimes2.local)/N_measure;
+	ptimes.mpi1=(ptimes1.mpi1+ptimes2.mpi2)/N_measure;
+	ptimes.mpi2=(ptimes1.mpi2+ptimes2.mpi1)/N_measure;
 	ttime/=N_measure;
 	/*printf("avg: %lf\n",time_mpi1[0]);*/
 
+	#ifdef GMX_MPI
 	MPI_Reduce(&ptimes,&otimes,sizeof(ptimes)/sizeof(double),MPI_DOUBLE,MPI_MAX,0,MPI_COMM_WORLD);
 	MPI_Reduce(&ttime,&ottime,1,MPI_DOUBLE,MPI_MAX,0,MPI_COMM_WORLD);
+	#else
+	memcpy(&otimes,&ptimes,sizeof(ptimes));
+	memcpy(&ottime,&ttime,sizeof(double));
+	#endif
 
 	if(prank==0) {
 		printf("Timing (ms): local: %f, fft: %f, mpi1: %f, mpi2: %f, total: %f\n",
@@ -177,7 +188,9 @@ Options:\n\
 	fft5d_destroy(p2);
 	fft5d_destroy(p1);
 	
+#ifdef GMX_MPI
 	MPI_Finalize();
+#endif
 
 	return 0;	
 }

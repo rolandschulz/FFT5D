@@ -1,4 +1,4 @@
-OBJS =		fft5d.o
+OBJS =		fft5d.o gmx_fft_fftw3.o gmx_fft_mkl.o gmx_fatal.o gmx_fft.o
 TARGETOBJS = testfft5d.o fft5d_example.o
 TARGET =	fft5d_example
 
