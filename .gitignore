@@ -1,0 +1,3 @@
+*.o
+benchfftw
+fft5d_example

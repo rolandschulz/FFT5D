@@ -6,7 +6,11 @@
 #include "fft5d.h"
 #include <fftw3.h>
 
-void init_random(fft5d_rtype* x, int l);
+/*compile:
+gcc   -Wall  benchfftw.c -l fftw3f -o benchfftw  -std=gnu99 -g -I . -D NOGMX -l fftw3f_threads
+*/
+
+void init_random(real* x, int l);
 
 int main(int argc,char** argv)
 {
@@ -69,18 +73,18 @@ Options:\n\
     srand(time(0));
     FFTW(plan) p2=0;
     int rN=N;
-    fft5d_type *in=0,*out=0;
-    in = (fft5d_type*) FFTW(malloc)(N*M*K*sizeof(fft5d_type));
+    t_complex *in=0,*out=0;
+    in = (t_complex*) FFTW(malloc)(N*M*K*sizeof(t_complex));
     if (flags&OUTOFPLACE)
-	out = (fft5d_type*) FFTW(malloc)(N*M*K*sizeof(fft5d_type));
+	out = (t_complex*) FFTW(malloc)(N*M*K*sizeof(t_complex));
     else 
 	out = in;
 
     if (flags&FFT5D_REALCOMPLEX) {
 	if (!(flags&FFT5D_BACKWARD)) {
-	    p2 = FFTW(plan_dft_r2c_3d)(K, M, rN, (fft5d_rtype*)in, (FFTW(complex)*)in, fftw_flags);
+	    p2 = FFTW(plan_dft_r2c_3d)(K, M, rN, (real*)in, (FFTW(complex)*)in, fftw_flags);
 	} else {
-	    p2 = FFTW(plan_dft_c2r_3d)(K, M, rN, in, (fft5d_rtype*)in, fftw_flags);
+	    p2 = FFTW(plan_dft_c2r_3d)(K, M, rN, in, (real*)in, fftw_flags);
 	}
     } else {
 	
@@ -121,7 +125,7 @@ Options:\n\
 
     }
     
-    init_random((fft5d_rtype*)in,N*M*K*sizeof(fft5d_type)/sizeof(fft5d_rtype));
+    init_random((real*)in,N*M*K*sizeof(t_complex)/sizeof(real));
 	
     double time=0;
     for (int m=0;m<N_measure;m++) {
@@ -137,10 +141,10 @@ Options:\n\
     if (flags&OUTOFPLACE) FFTW(free)(out);
 }
 
-void init_random(fft5d_rtype* x, int l) {
+void init_random(real* x, int l) {
     int i;
     for (i=0;i<l;i++) {
-        x[i]=((fft5d_rtype)rand())/RAND_MAX;
+        x[i]=((real)rand())/RAND_MAX;
     }
 }
 

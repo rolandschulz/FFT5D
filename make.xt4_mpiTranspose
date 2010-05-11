@@ -1,4 +1,4 @@
-CFLAGS=-fastsse -I$(HOME)/software/fftw32/include -DFFT5D_MPI_TRANSPOSE -DFFT5D_SINGLE
+CFLAGS=-fastsse -I$(HOME)/software/fftw32/include -DFFT5D_MPI_TRANSPOSE 
 LIBS = -L$(HOME)/software/fftw32/lib -lfftw3f_mpi -lfftw3f 
 
 include make.base

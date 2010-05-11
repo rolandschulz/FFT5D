@@ -1,5 +1,5 @@
 CC=mpicc.openmpi
-CFLAGS =	 -g -Wall -I $(HOME)/usr-debug/include/ -DFFT5D_MPI_TRANSPOSE -DFFT5D_SINGLE
+CFLAGS =	 -g -Wall -I $(HOME)/usr-debug/include/ -DFFT5D_MPI_TRANSPOSE 
 LIBS = -lfftw3f_mpi -lfftw3f -L $(HOME)/usr-debug/lib -lm
 
 include make.base

@@ -18,10 +18,10 @@
 #include "fft5d.h"
 
 /*initialize vector x of length l with random values*/
-static void init_random(fft5d_rtype* x, int l) {
+static void init_random(real* x, int l) {
 	int i;
 	for (i=0;i<l;i++) {
-		x[i]=((fft5d_rtype)rand())/RAND_MAX;
+		x[i]=((real)rand())/RAND_MAX;
 	}
 }
 
@@ -51,7 +51,7 @@ int main(int argc,char** argv)
 	int c,lsize;
 	int Nb,Mb,Kb; /*dimension for backtransform (in starting order)*/
 
-	fft5d_type *lin,*lout,*initial;
+	t_complex *lin,*lout,*initial;
 	int N1,M0,K0,K1,*coor;
 	fft5d_plan p1,p2;
 
@@ -133,7 +133,7 @@ Options:\n\
 	p1 = fft5d_plan_3d_cart(rN,M,K,MPI_COMM_WORLD,P0, flags, &lin,&lout);
 	fft5d_local_size(p1,&N1,&M0,&K0,&K1,&coor);
 	lsize = N*M0*K1; 
-	initial=malloc(lsize*sizeof(fft5d_type)); 
+	initial=malloc(lsize*sizeof(t_complex)); 
 	
 	if (!(flags&FFT5D_ORDER_YZ)) {Nb=M;Mb=K;Kb=rN;}		
 	else {Nb=K;Mb=rN;Kb=M;}
@@ -142,8 +142,8 @@ Options:\n\
 				(flags|FFT5D_BACKWARD|FFT5D_NOMALLOC)^FFT5D_ORDER_YZ,&lout,&lin);
 	/*srand(time(0)+prank);*/
 	srand(/*time(0)+*/prank+1023);
-	init_random((fft5d_rtype*)lin,lsize*sizeof(fft5d_type)/sizeof(fft5d_rtype));
-	memcpy(initial,lin,lsize*sizeof(fft5d_type));
+	init_random((real*)lin,lsize*sizeof(t_complex)/sizeof(real));
+	memcpy(initial,lin,lsize*sizeof(t_complex));
 	
 	for (m=0;m<N_measure;m++) {
 	        ttime-=MPI_Wtime();

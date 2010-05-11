@@ -59,7 +59,7 @@ int main(int argc,char** argv) {
 	for (j=0;j<local_ndata[1];j++)  {
 	    for (k=0;k<local_ndata[2];k++)  {
 		if (fabs(compare[i*local_ndata[1]*local_ndata[2]+j*local_ndata[2]+k] - 
-			 real_data[i*local_size[1]*local_size[2]+j*local_size[2]+k]/(ndata[0]*ndata[1]*ndata[2]))>2*ndata[0]*ndata[1]*ndata[2]*FFT5D_EPS) {
+			 real_data[i*local_size[1]*local_size[2]+j*local_size[2]+k]/(ndata[0]*ndata[1]*ndata[2]))>2*ndata[0]*ndata[1]*ndata[2]*GMX_REAL_EPS) {
 		    printf("error: %d %d %d: %f %f\n",i,j,k,compare[i*local_ndata[1]*local_ndata[2]+j*local_ndata[2]+k],
 			   real_data[i*local_size[1]*local_size[2]+j*local_size[2]+k]/(ndata[0]*ndata[1]*ndata[2]));
 		}
