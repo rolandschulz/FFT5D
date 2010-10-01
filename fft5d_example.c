@@ -148,7 +148,10 @@ Options:\n\
 
 	double min_time=1e40;
 	for (int t=0;t<8;t++) {
-	  for (m=0;m<N_measure;m++) {
+	    bzero(&ptimes1,sizeof(ptimes1));
+	    bzero(&ptimes2,sizeof(ptimes2));
+	    ttime=0;
+	    for (m=0;m<N_measure;m++) {
 	        ttime-=MPI_Wtime();
 		fft5d_execute(p1, &ptimes1);  //TODO this mixes 
 		fft5d_execute(p2, &ptimes2);

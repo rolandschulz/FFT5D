@@ -1,9 +1,42 @@
 /* -*- mode: c; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4; c-file-style: "stroustrup"; -*-
+ * $Id: gmx_matrix.c,v 1.4 2008/12/02 18:27:57 spoel Exp $
+ * 
+ *                This source code is part of
+ * 
+ *                 G   R   O   M   A   C   S
+ * 
+ *          GROningen MAchine for Chemical Simulations
+ * 
+ *                        VERSION 4.5
+ * Written by David van der Spoel, Erik Lindahl, Berk Hess, and others.
+ * Copyright (c) 1991-2000, University of Groningen, The Netherlands.
+ * Copyright (c) 2001-2008, The GROMACS development team,
+ * check out http://www.gromacs.org for more information.
+ 
+ * This program is free software; you can redistribute it and/or
+ * modify it under the terms of the GNU General Public License
+ * as published by the Free Software Foundation; either version 2
+ * of the License, or (at your option) any later version.
+ * 
+ * If you want to redistribute modifications, please consider that
+ * scientific software is very special. Version control is crucial -
+ * bugs must be traceable. We will be happy to consider code for
+ * inclusion in the official distribution, but derived work must not
+ * be called official GROMACS. Details are found in the README & COPYING
+ * files - if they are missing, get the official version at www.gromacs.org.
+ * 
+ * To help us fund GROMACS development, we humbly ask that you cite
+ * the papers on the package - you can find them in the top README file.
+ * 
+ * For more info, check our website at http://www.gromacs.org
+ * 
+ * And Hey:
+ * Groningen Machine for Chemical Simulation
  */
-
 #ifdef HAVE_CONFIG_H
 #include <config.h>
 #endif
+
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -25,6 +58,8 @@
 
 #ifdef FFT5D_THREADS
 #include <omp.h>
+/* requires fftw compiled with openmp */
+#define FFT5D_FFTW_THREADS
 #endif
 
 #include "fft5d.h"
@@ -374,7 +409,8 @@ fft5d_plan fft5d_plan_3d(int NG, int MG, int KG, MPI_Comm comm[2], int flags, t_
     plan = (fft5d_plan)calloc(1,sizeof(struct fft5d_plan_t));
 
     
-#ifdef FFT5D_THREADS   /*requires fftw with openmp and openmp*/
+#ifdef FFT5D_THREADS
+#ifdef FFT5D_FFTW_THREADS
     FFTW(init_threads)();
     int nthreads;
     #pragma omp parallel
@@ -384,9 +420,12 @@ fft5d_plan fft5d_plan_3d(int NG, int MG, int KG, MPI_Comm comm[2], int flags, t_
             nthreads = omp_get_num_threads();
         }
     }
-    printf("Running on %d threads\n",nthreads);        
+    if (prank[0] == 0 && prank[1] == 0)
+    {
+        printf("Running fftw on %d threads\n",nthreads);        
+    }
     FFTW(plan_with_nthreads)(nthreads);
-
+#endif
 #endif    
 
 #ifdef GMX_FFT_FFTW3  /*if not FFTW - then we don't do a 3d plan but insead only 1D plans */
@@ -546,19 +585,38 @@ enum order {
   NG, MG, KG is size of global data*/
 static void splitaxes(t_complex* lout,const t_complex* lin,
                       int maxN,int maxM,int maxK, int pN, int pM, int pK,
-                      int P,int NG,int *N, int* oN) {
+                      int P,int NG,int *N, int* oN)
+{
     int x,y,z,i;
     int in_i,out_i,in_z,out_z,in_y,out_y;
 
-    for (i=0;i<P;i++) { /*index cube along long axis*/
-        in_i  = i*maxN*maxM*maxK;
-        out_i = oN[i];
-        for (z=0;z<pK;z++) { /*3. z l*/ 
-            in_z  = in_i  + z*maxN*maxM;
-            out_z = out_i + z*NG*pM;
+#ifdef FFT5D_THREADS
+    int zi;
+
+    /* In the thread parallel case we want to loop over z and i
+     * in a single for loop to allow for better load balancing.
+     */
+#pragma omp parallel for private(z,in_z,out_z,i,in_i,out_i,y,in_y,out_y,x) schedule(static)
+    for (zi=0; zi<pK*P; zi++)
+    {
+        z = zi/P;
+        i = zi - z*P;
+#else
+    for (z=0; z<pK; z++) /*3. z l*/ 
+    {
+#endif
+        in_z  = z*maxN*maxM;
+        out_z = z*NG*pM;
+
+#ifndef FFT5D_THREADS
+        for (i=0; i<P; i++) /*index cube along long axis*/
+#endif
+        {
+            in_i  = in_z  + i*maxN*maxM*maxK;
+            out_i = out_z + oN[i];
             for (y=0;y<pM;y++) { /*2. y k*/
-                in_y  = in_z  + y*maxN;
-                out_y = out_z + y*NG;
+                in_y  = in_i  + y*maxN;
+                out_y = out_i + y*NG;
                 for (x=0;x<N[i];x++) { /*1. x j*/
                     lout[in_y+x] = lin[out_y+x];
                     /*after split important that each processor chunk i has size maxN*maxM*maxK and thus being the same size*/
@@ -582,15 +640,34 @@ static void joinAxesTrans13(t_complex* lin,const t_complex* lout,
     int i,x,y,z;
     int in_i,out_i,in_x,out_x,in_z,out_z;
 
-    for (i=0;i<P;i++) { /*index cube along long axis*/
-        in_i  = oK[i];
-        out_i = i*maxM*maxN*maxK;
-        for (x=0;x<pN;x++) { /*1.j*/
-            in_x  = in_i  + x*KG*pM;
-            out_x = out_i + x;
-            for (z=0;z<K[i];z++) { /*3.l*/
-                in_z  = in_x  + z;
-                out_z = out_x + z*maxM*maxN;
+#ifdef FFT5D_THREADS
+    int xi;
+
+    /* In the thread parallel case we want to loop over x and i
+     * in a single for loop to allow for better load balancing.
+     */
+#pragma omp parallel for private(x,in_x,out_x,i,in_i,out_i,z,in_z,out_z,y) schedule(static)
+    for (xi=0; xi<pN*P; xi++)
+    {
+        x = xi/P;
+        i = xi - x*P;
+#else
+    for (x=0;x<pN;x++) /*1.j*/
+    {
+#endif
+        in_x  = x*KG*pM;
+        out_x = x;
+
+#ifndef FFT5D_THREADS
+        for (i=0;i<P;i++) /*index cube along long axis*/
+#endif
+        {
+            in_i  = in_x  + oK[i];
+            out_i = out_x + i*maxM*maxN*maxK;
+            for (z=0;z<K[i];z++) /*3.l*/
+            {
+                in_z  = in_i  + z;
+                out_z = out_i + z*maxM*maxN;
                 for (y=0;y<pM;y++) { /*2.k*/
                     lin[in_z+y*KG] = lout[out_z+y*maxN];
                 }
@@ -610,15 +687,33 @@ static void joinAxesTrans12(t_complex* lin,const t_complex* lout,int maxN,int ma
     int i,z,y,x;
     int in_i,out_i,in_z,out_z,in_x,out_x;
 
-    for (i=0;i<P;i++) { /*index cube along long axis*/
-        in_i  = oM[i];
-        out_i = i*maxM*maxN*maxK;
-        for (z=0;z<pK;z++) { 
-            in_z  = in_i  + z*MG*pN;
-            out_z = out_i + z*maxM*maxN;
+#ifdef FFT5D_THREADS
+    int zi;
+
+    /* In the thread parallel case we want to loop over z and i
+     * in a single for loop to allow for better load balancing.
+     */
+#pragma omp parallel for private(i,in_i,out_i,z,in_z,out_z,in_x,out_x,x,y) schedule(static)
+    for (zi=0; zi<pK*P; zi++)
+    {
+        z = zi/P;
+        i = zi - z*P;
+#else
+    for (z=0; z<pK; z++)
+    {
+#endif
+        in_z  = z*MG*pN;
+        out_z = z*maxM*maxN;
+
+#ifndef FFT5D_THREADS
+        for (i=0; i<P; i++) /*index cube along long axis*/
+#endif
+        {
+            in_i  = in_z  + oM[i];
+            out_i = out_z + i*maxM*maxN*maxK;
             for (x=0;x<pN;x++) {
-                in_x  = in_z  + x*MG;
-                out_x = out_z + x;
+                in_x  = in_i  + x*MG;
+                out_x = out_i + x;
                 for (y=0;y<M[i];y++) {
                     lin[in_x+y] = lout[out_x+y*maxN];
                 }
@@ -877,7 +972,9 @@ void fft5d_destroy(fft5d_plan plan) {
 
     
 #ifdef FFT5D_THREADS
+#ifdef FFT5D_FFTW_THREADS
     FFTW(cleanup_threads)();
+#endif
 #endif
 
     free(plan);
