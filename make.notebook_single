@@ -4,7 +4,10 @@ CC=mpicc
 CFLAGS = -I.  -O3 -fomit-frame-pointer -finline-functions -Wall -Wno-unused -msse2 -funroll-all-loops -std=gnu99 -D HAVE_CONFIG_H -D GMX_FFT_FFTW3
 #CFLAGS = -I. -Wall -g -std=gnu99 -D HAVE_CONFIG_H -D GMX_FFT_FFTW3
 
-LIBS = -lfftw3f -L $(HOME)/usr/lib -lm
+LIBS =-Wl,-R $(HOME)/usr/lib  -lfftw3f  -lm
+#LIBS =-static -L $(HOME)/usr/lib  -lfftw3f  -lm
+#LIBS =-L$(HOME)/usr/fftw33alpha/lib  -lfftw3f  -lm
+#LIBS = -lfftw3f -lm
 
 include make.base
 

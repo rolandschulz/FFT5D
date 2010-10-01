@@ -142,15 +142,18 @@ Options:\n\
 				(flags|FFT5D_BACKWARD|FFT5D_NOMALLOC)^FFT5D_ORDER_YZ,&lout,&lin);
 	/*srand(time(0)+prank);*/
 	srand(/*time(0)+*/prank+1023);
-	init_random((real*)lin,lsize*sizeof(t_complex)/sizeof(real));
+	/*init_random((real*)lin,lsize*sizeof(t_complex)/sizeof(real));*/
+	bzero(lin,lsize*sizeof(t_complex));
 	memcpy(initial,lin,lsize*sizeof(t_complex));
-	
-	for (m=0;m<N_measure;m++) {
+
+	double min_time=1e40;
+	for (int t=0;t<8;t++) {
+	  for (m=0;m<N_measure;m++) {
 	        ttime-=MPI_Wtime();
 		fft5d_execute(p1, &ptimes1);  //TODO this mixes 
 		fft5d_execute(p2, &ptimes2);
 		ttime+=MPI_Wtime();
-		if (m==0) {
+		if (m==0 && t==0) {
 
 			if (prank==0) printf("Comparison\n");
 			
@@ -164,20 +167,24 @@ Options:\n\
 		
 
 		}
-	} /* end measure*/
-	ptimes.fft=(ptimes1.fft+ptimes2.fft)/N_measure;
-	ptimes.local=(ptimes1.local+ptimes2.local)/N_measure;
-	ptimes.mpi1=(ptimes1.mpi1+ptimes2.mpi2)/N_measure;
-	ptimes.mpi2=(ptimes1.mpi2+ptimes2.mpi1)/N_measure;
-	ttime/=N_measure;
+	  } /* end measure run*/
+	  ttime/=N_measure;
+	  if (ttime<min_time) {
+	    min_time=ttime;
+	    ptimes.fft=(ptimes1.fft+ptimes2.fft)/N_measure;
+	    ptimes.local=(ptimes1.local+ptimes2.local)/N_measure;
+	    ptimes.mpi1=(ptimes1.mpi1+ptimes2.mpi2)/N_measure;
+	    ptimes.mpi2=(ptimes1.mpi2+ptimes2.mpi1)/N_measure;
+	  }
+	}
 	/*printf("avg: %lf\n",time_mpi1[0]);*/
 
 	#ifdef GMX_MPI
 	MPI_Reduce(&ptimes,&otimes,sizeof(ptimes)/sizeof(double),MPI_DOUBLE,MPI_MAX,0,MPI_COMM_WORLD);
-	MPI_Reduce(&ttime,&ottime,1,MPI_DOUBLE,MPI_MAX,0,MPI_COMM_WORLD);
+	MPI_Reduce(&min_time,&ottime,1,MPI_DOUBLE,MPI_MAX,0,MPI_COMM_WORLD);
 	#else
 	memcpy(&otimes,&ptimes,sizeof(ptimes));
-	memcpy(&ottime,&ttime,sizeof(double));
+	memcpy(&ottime,&min_time,sizeof(double));
 	#endif
 
 	if(prank==0) {

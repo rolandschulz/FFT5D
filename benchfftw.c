@@ -3,6 +3,9 @@
 #include <stdio.h>
 #include <time.h>
 #include <assert.h>
+#include <math.h>
+#include <string.h>
+
 #include "fft5d.h"
 #include <fftw3.h>
 
@@ -64,11 +67,13 @@ Options:\n\
 	abort();
     } 
     
-    unsigned fftw_flags = FFTW_PATIENT;
+    unsigned fftw_flags = FFTW_MEASURE;//PATIENT;
 
+#ifndef NTHREADS
     printf("Running on %d threads\n", nthreads);
     FFTW(init_threads)();
     FFTW(plan_with_nthreads)(nthreads);
+#endif
 
     srand(time(0));
     FFTW(plan) p2=0;
@@ -82,9 +87,11 @@ Options:\n\
 
     if (flags&FFT5D_REALCOMPLEX) {
 	if (!(flags&FFT5D_BACKWARD)) {
-	    p2 = FFTW(plan_dft_r2c_3d)(K, M, rN, (real*)in, (FFTW(complex)*)in, fftw_flags);
+	  printf("real forward %d %d %d\n", K, M, rN);
+	    p2 = FFTW(plan_dft_r2c_3d)(K, M, rN, (real*)in, (FFTW(complex)*)out, fftw_flags);
 	} else {
-	    p2 = FFTW(plan_dft_c2r_3d)(K, M, rN, in, (real*)in, fftw_flags);
+	  printf("real backward\n");
+	    p2 = FFTW(plan_dft_c2r_3d)(K, M, rN, in, (real*)out, fftw_flags);
 	}
     } else {
 	
@@ -114,30 +121,38 @@ Options:\n\
 		printf("wrong value for A"); abort();
 	    }
 
+	    printf("complex forward with rotation\n");
 	    p2 = FFTW(plan_guru_dft)(/*rank*/ 3, dims,
 		       /*howmany*/ 0, /*howmany_dims*/0 ,
 		       in, out,
 		       /*sign*/ -1, /*flags*/ fftw_flags);
 	} else {
-	    p2 = FFTW(plan_dft_3d)(K, M, N, (FFTW(complex)*)in, (FFTW(complex)*)in, (flags&FFT5D_BACKWARD)?1:-1, fftw_flags);
+	     printf("complex\n");
+	    p2 = FFTW(plan_dft_3d)(K, M, N, (FFTW(complex)*)in, (FFTW(complex)*)out, (flags&FFT5D_BACKWARD)?1:-1, fftw_flags);
 	}
 	assert(p2);
 
     }
     
-    init_random((real*)in,N*M*K*sizeof(t_complex)/sizeof(real));
-	
-    double time=0;
-    for (int m=0;m<N_measure;m++) {
-	time-=MPI_Wtime();
+    /*init_random((real*)in,N*M*K*sizeof(t_complex)/sizeof(real));*/
+    bzero(in,N*M*K*2sizeof(complex));
+
+    double min_time=1e30,stime=0;
+    for (int t=0;t<8;t++) {
+      for (int m=0;m<N_measure;m++) {
+	stime-=MPI_Wtime();
 	FFTW(execute)(p2);
-	time+=MPI_Wtime();
+	stime+=MPI_Wtime();
+      }
+      min_time=fmin(min_time,stime/N_measure);
     }
-    printf("%lf\n",time/N_measure*1000);
+    printf("%lf\n",min_time*1000);
 
     FFTW(destroy_plan)(p2);
     FFTW(free)(in);
+#ifndef NTHREADS
     FFTW(cleanup_threads)();
+#endif
     if (flags&OUTOFPLACE) FFTW(free)(out);
 }
 

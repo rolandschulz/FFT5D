@@ -85,12 +85,18 @@ static int lpfactor(int z) {
 }
 
 #ifndef GMX_MPI
+#ifdef HAVE_GETTIMEOFDAY
 #include <sys/time.h>
 double MPI_Wtime() {
     struct timeval tv;
     gettimeofday(&tv,0);
     return tv.tv_sec+tv.tv_usec*1e-6;
 }
+#else
+double MPI_Wtime() {
+    return 0.0;
+}
+#endif
 #endif
 
 static int vmax(int* a, int s) {
@@ -111,11 +117,14 @@ copied here from fftgrid, because:
 Only used for non-fftw case
 */
 static void *
-gmx_alloc_aligned(size_t size)
+gmx_calloc_aligned(size_t size)
 {
     void *p0,*p;
     
-    p0 = malloc(size+32);
+    /*We initialize by zero for Valgrind
+      For non-divisible case we communicate more than the data.
+      If we don't initialize the data we communicate uninitialized data*/
+    p0 = calloc(size+32,1);  
     
     if(p0 == NULL)
     {
@@ -355,17 +364,8 @@ fft5d_plan fft5d_plan_3d(int NG, int MG, int KG, MPI_Comm comm[2], int flags, t_
     lsize = fft5d_fmax(N[0]*M[0]*K[0]*nP[0],fft5d_fmax(N[1]*M[1]*K[1]*nP[1],C[2]*M[2]*K[2])); 
     /* int lsize = fmax(C[0]*M[0]*K[0],fmax(C[1]*M[1]*K[1],C[2]*M[2]*K[2])); */
     if (!(flags&FFT5D_NOMALLOC)) { 
-        #ifdef GMX_FFT_FFTW3 
-        FFTW_LOCK;
-        /* local in    */
-        lin = (t_complex*)FFTW(malloc)(sizeof(t_complex) * lsize); 
-        /* local output */
-        lout = (t_complex*)FFTW(malloc)(sizeof(t_complex) * lsize); 
-        FFTW_UNLOCK;
-        #else 
-        lin = (t_complex*)gmx_alloc_aligned(sizeof(t_complex) * lsize);   
-        lout = (t_complex*)gmx_alloc_aligned(sizeof(t_complex) * lsize); 
-        #endif
+        lin = (t_complex*)gmx_calloc_aligned(sizeof(t_complex) * lsize);   
+        lout = (t_complex*)gmx_calloc_aligned(sizeof(t_complex) * lsize); 
     } else {
         lin = *rlin;
         lout = *rlout;
@@ -374,7 +374,7 @@ fft5d_plan fft5d_plan_3d(int NG, int MG, int KG, MPI_Comm comm[2], int flags, t_
     plan = (fft5d_plan)calloc(1,sizeof(struct fft5d_plan_t));
 
     
-#ifdef FFT5D_THREADS   //requires fftw with openmp and openmp
+#ifdef FFT5D_THREADS   /*requires fftw with openmp and openmp*/
     FFTW(init_threads)();
     int nthreads;
     #pragma omp parallel
@@ -392,10 +392,11 @@ fft5d_plan fft5d_plan_3d(int NG, int MG, int KG, MPI_Comm comm[2], int flags, t_
 #ifdef GMX_FFT_FFTW3  /*if not FFTW - then we don't do a 3d plan but insead only 1D plans */
     if ((!(flags&FFT5D_INPLACE)) && (!(P[0]>1 || P[1]>1))) {  /*don't do 3d plan in parallel or if in_place requested */  
             int fftwflags=FFTW_DESTROY_INPUT;
-            if (!(flags&FFT5D_NOMEASURE)) fftwflags|=FFTW_PATIENT; //FFTW_MEASURE;
             fftw_iodim dims[3];
             int inNG=NG,outMG=MG,outKG=KG;
+
             FFTW_LOCK;
+            if (!(flags&FFT5D_NOMEASURE)) fftwflags|=FFTW_MEASURE;
             if (flags&FFT5D_REALCOMPLEX) {
                 if (!(flags&FFT5D_BACKWARD)) {  /*input pointer is not complex*/
                     inNG*=2; 
@@ -686,7 +687,7 @@ static void compute_offsets(fft5d_plan plan, int xs[], int xl[], int xc[], int N
         case 3: xs[i]=C[s]*pM[s];xc[i]=oK[s]; xl[i]=pK[s];break;
         }
     }
-    /*input order is different for test programm to match FFTW order 
+    /*input order is different for test program to match FFTW order 
       (important for complex to real)*/
     if (plan->flags&FFT5D_BACKWARD) {
         rotate(xs);
@@ -739,9 +740,10 @@ void fft5d_execute(fft5d_plan plan,fft5d_time times) {
     MPI_Comm *cart=plan->cart;
 #endif
 
-    double time_fft=0,time_local=0,time_mpi[2]={0},time;    
+    double time_fft=0,time_local=0,time_mpi[2]={0},time=0;    
     int *N=plan->N,*M=plan->M,*K=plan->K,*pN=plan->pN,*pM=plan->pM,*pK=plan->pK,
         *C=plan->C,*P=plan->P,**iNin=plan->iNin,**oNin=plan->oNin,**iNout=plan->iNout,**oNout=plan->oNout;
+    int s=0;
     
     
 #ifdef GMX_FFT_FFTW3 
@@ -756,33 +758,38 @@ void fft5d_execute(fft5d_plan plan,fft5d_time times) {
 #endif
 
     /*lin: x,y,z*/
-    int s=0;
     if (plan->flags&FFT5D_DEBUG) print_localdata(lin, "%d %d: copy in lin\n", s, plan);
     for (s=0;s<2;s++) {
-        time=MPI_Wtime();
+        if (times!=0)
+            time=MPI_Wtime();
         
         if ((plan->flags&FFT5D_REALCOMPLEX) && !(plan->flags&FFT5D_BACKWARD) && s==0) {
             gmx_fft_many_1d_real(p1d[s],(plan->flags&FFT5D_BACKWARD)?GMX_FFT_COMPLEX_TO_REAL:GMX_FFT_REAL_TO_COMPLEX,lin,lout);
         } else {
             gmx_fft_many_1d(     p1d[s],(plan->flags&FFT5D_BACKWARD)?GMX_FFT_BACKWARD:GMX_FFT_FORWARD,               lin,lout);
         }
-        time_fft+=MPI_Wtime()-time;
+        if (times!=0)
+            time_fft+=MPI_Wtime()-time;
     
         if (plan->flags&FFT5D_DEBUG) print_localdata(lout, "%d %d: FFT %d\n", s, plan);
         
 #ifdef GMX_MPI
         if (GMX_PARALLEL_ENV_INITIALIZED && cart[s] !=0 && P[s]>1 )
         {
-            time=MPI_Wtime(); 
+            if (times!=0)
+                time=MPI_Wtime(); 
             /*prepare for AllToAll
               1. (most outer) axes (x) is split into P[s] parts of size N[s] 
               for sending*/
             splitaxes(lin,lout,N[s],M[s],K[s], pN[s],pM[s],pK[s],P[s],C[s],iNout[s],oNout[s]);
 
-            time_local+=MPI_Wtime()-time;
+            if (times!=0)
+            {
+                time_local+=MPI_Wtime()-time;
             
-            /*send, recv*/
-            time=MPI_Wtime();
+                /*send, recv*/
+                time=MPI_Wtime();
+            }
 
 #ifdef FFT5D_MPI_TRANSPOSE
             FFTW(execute)(mpip[s]);  
@@ -792,12 +799,14 @@ void fft5d_execute(fft5d_plan plan,fft5d_time times) {
             else
                 MPI_Alltoall(lin,N[s]*M[s]*pK[s]*sizeof(t_complex)/sizeof(real),GMX_MPI_REAL,lout,N[s]*M[s]*pK[s]*sizeof(t_complex)/sizeof(real),GMX_MPI_REAL,cart[s]);
 #endif /*FFT5D_MPI_TRANSPOSE*/
-            time_mpi[s]=MPI_Wtime()-time;
+            if (times!=0)
+                time_mpi[s]=MPI_Wtime()-time;
         }
 #endif /*GMX_MPI*/
 
     
-        time=MPI_Wtime();
+        if (times!=0)
+            time=MPI_Wtime();
         /*bring back in matrix form 
           thus make  new 1. axes contiguos
           also local transpose 1 and 2/3 */
@@ -805,14 +814,16 @@ void fft5d_execute(fft5d_plan plan,fft5d_time times) {
             joinAxesTrans13(lin,lout,N[s],pM[s],K[s],pN[s],pM[s],pK[s],P[s],C[s+1],iNin[s+1],oNin[s+1]);
         else 
             joinAxesTrans12(lin,lout,N[s],M[s],pK[s],pN[s],pM[s],pK[s],P[s],C[s+1],iNin[s+1],oNin[s+1]);    
-        time_local+=MPI_Wtime()-time;
+        if (times!=0)
+            time_local+=MPI_Wtime()-time;
     
         if (plan->flags&FFT5D_DEBUG) print_localdata(lin, "%d %d: tranposed %d\n", s+1, plan);
                 
         /*if (debug) print_localdata(lin, "%d %d: transposed x-z\n", N1, M0, K, ZYX, coor);*/
     }    
     
-    time=MPI_Wtime();
+    if (times!=0)
+        time=MPI_Wtime();
     if (plan->flags&FFT5D_INPLACE) lout=lin;
     if ((plan->flags&FFT5D_REALCOMPLEX) && (plan->flags&FFT5D_BACKWARD)) {
         gmx_fft_many_1d_real(p1d[s],(plan->flags&FFT5D_BACKWARD)?GMX_FFT_COMPLEX_TO_REAL:GMX_FFT_REAL_TO_COMPLEX,lin,lout);
@@ -820,7 +831,8 @@ void fft5d_execute(fft5d_plan plan,fft5d_time times) {
         gmx_fft_many_1d(     p1d[s],(plan->flags&FFT5D_BACKWARD)?GMX_FFT_BACKWARD:GMX_FFT_FORWARD,               lin,lout);
     }
 
-    time_fft+=MPI_Wtime()-time;
+    if (times!=0)
+        time_fft+=MPI_Wtime()-time;
     if (plan->flags&FFT5D_DEBUG) print_localdata(lout, "%d %d: FFT %d\n", s, plan);
     /*if (debug) print_localdata(lout, "%d %d: FFT in y\n", N1, M, K0, YZX, coor);*/
     
@@ -859,14 +871,10 @@ void fft5d_destroy(fft5d_plan plan) {
     for (s=0;s<2;s++)    
         FFTW(destroy_plan)(plan->mpip[s]);
 #endif /* FFT5D_MPI_TRANSPOS */
-    if (!(plan->flags&FFT5D_NOMALLOC)) { 
-        FFTW(free)(plan->lin);
-        FFTW(free)(plan->lout);
-    }
-    FFTW_UNLOCK;
-#else /* GMX_FFT_FFTW3 */
-    /*We can't free lin/lout here - is allocated by gmx_alloc_aligned which can't be freed*/
 #endif /* GMX_FFT_FFTW3 */
+
+    /*We can't free lin/lout here - is allocated by gmx_calloc_aligned which can't be freed*/
+
     
 #ifdef FFT5D_THREADS
     FFTW(cleanup_threads)();
