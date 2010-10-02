@@ -48,7 +48,7 @@ typedef enum fft5d_flags_t {
 struct fft5d_plan_t {
 	t_complex *lin;
 	t_complex *lout;
-        gmx_fft_t p1d[3];   /*1D plans*/
+        gmx_fft_t* p1d[3];   /*1D plans*/
 #ifdef GMX_FFT_FFTW3 
         FFTW(plan) p2d;  /*2D plan: used for 1D decomposition if FFT supports transposed output*/
         FFTW(plan) p3d;  /*3D plan: used for 0D decomposition if FFT supports transposed output*/
@@ -67,11 +67,12 @@ struct fft5d_plan_t {
 /*	int fftorder;*/
 /*	int direction;*/
 /*	int realcomplex;*/
-	int flags;
+    int flags;
     /*int N0,N1,M0,M1,K0,K1;*/
-	int NG,MG,KG;
-    /*int P[2];*/
-	int coor[2];
+    int NG,MG,KG;
+  /*int P[2];*/
+    int coor[2];
+    int nthreads;
 }; 
 
 typedef struct fft5d_plan_t *fft5d_plan;

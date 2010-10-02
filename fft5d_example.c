@@ -141,9 +141,9 @@ Options:\n\
 	p2 = fft5d_plan_3d_cart(Nb,Mb,Kb,MPI_COMM_WORLD,P0,  
 				(flags|FFT5D_BACKWARD|FFT5D_NOMALLOC)^FFT5D_ORDER_YZ,&lout,&lin);
 	/*srand(time(0)+prank);*/
-	srand(/*time(0)+*/prank+1023);
-	/*init_random((real*)lin,lsize*sizeof(t_complex)/sizeof(real));*/
-	bzero(lin,lsize*sizeof(t_complex));
+	srand(time(0)+prank+1023);
+	init_random((real*)lin,lsize*sizeof(t_complex)/sizeof(real));
+	//bzero(lin,lsize*sizeof(t_complex));
 	memcpy(initial,lin,lsize*sizeof(t_complex));
 
 	double min_time=1e40;

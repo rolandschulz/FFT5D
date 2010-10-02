@@ -180,7 +180,7 @@ gmx_calloc_aligned(size_t size)
 fft5d_plan fft5d_plan_3d(int NG, int MG, int KG, MPI_Comm comm[2], int flags, t_complex** rlin, t_complex** rlout)
 {
 
-    int P[2],bMaster,prank[2],i;
+    int P[2],bMaster,prank[2],i,t;
     int rNG,rMG,rKG;
     int *N0=0, *N1=0, *M0=0, *M1=0, *K0=0, *K1=0, *oN0=0, *oN1=0, *oM0=0, *oM1=0, *oK0=0, *oK1=0;
     int N[3],M[3],K[3],pN[3],pM[3],pK[3],oM[3],oK[3],*iNin[3]={0},*oNin[3]={0},*iNout[3]={0},*oNout[3]={0};
@@ -409,10 +409,10 @@ fft5d_plan fft5d_plan_3d(int NG, int MG, int KG, MPI_Comm comm[2], int flags, t_
     plan = (fft5d_plan)calloc(1,sizeof(struct fft5d_plan_t));
 
     
+    int nthreads = 1;
 #ifdef FFT5D_THREADS
 #ifdef FFT5D_FFTW_THREADS
-    FFTW(init_threads)();
-    int nthreads;
+    //FFTW(init_threads)();
     #pragma omp parallel
     {
         #pragma omp master
@@ -422,9 +422,8 @@ fft5d_plan fft5d_plan_3d(int NG, int MG, int KG, MPI_Comm comm[2], int flags, t_
     }
     if (prank[0] == 0 && prank[1] == 0)
     {
-        printf("Running fftw on %d threads\n",nthreads);        
+        printf("Running on %d threads\n",nthreads);        
     }
-    FFTW(plan_with_nthreads)(nthreads);
 #endif
 #endif    
 
@@ -489,6 +488,11 @@ fft5d_plan fft5d_plan_3d(int NG, int MG, int KG, MPI_Comm comm[2], int flags, t_
                     dims[2].os = 1;                  
                 }           
             }
+#ifdef FFT5D_THREADS
+#ifdef FFT5D_FFTW_THREADS
+            FFTW(plan_with_nthreads)(nthreads);
+#endif
+#endif
             if ((flags&FFT5D_REALCOMPLEX) && !(flags&FFT5D_BACKWARD)) {
                 plan->p3d = FFTW(plan_guru_dft_r2c)(/*rank*/ 3, dims,
                                      /*howmany*/ 0, /*howmany_dims*/0 ,
@@ -505,6 +509,11 @@ fft5d_plan fft5d_plan_3d(int NG, int MG, int KG, MPI_Comm comm[2], int flags, t_
                                      (FFTW(complex) *)lin, (FFTW(complex) *)lout,
                                      /*sign*/ (flags&FFT5D_BACKWARD)?1:-1, /*flags*/ fftwflags);
             }
+#ifdef FFT5D_THREADS
+#ifdef FFT5D_FFTW_THREADS
+            FFTW(plan_with_nthreads)(0);
+#endif
+#endif
             FFTW_UNLOCK;
     }
     if (!plan->p3d) {  /* for decomposition and if 3d plan did not work */
@@ -515,12 +524,27 @@ fft5d_plan fft5d_plan_3d(int NG, int MG, int KG, MPI_Comm comm[2], int flags, t_
                 fprintf(debug,"FFT5D: Plan s %d rC %d M %d pK %d C %d lsize %d\n",
                         s,rC[s],M[s],pK[s],C[s],lsize);
             }
-            if ((flags&FFT5D_REALCOMPLEX) && ((!(flags&FFT5D_BACKWARD) && s==0) || ((flags&FFT5D_BACKWARD) && s==2))) {
-                gmx_fft_init_many_1d_real( &plan->p1d[s], rC[s], pM[s]*pK[s], (flags&FFT5D_NOMEASURE)?GMX_FFT_FLAG_CONSERVATIVE:0 );
-            } else {
-                gmx_fft_init_many_1d     ( &plan->p1d[s],  C[s], pM[s]*pK[s], (flags&FFT5D_NOMEASURE)?GMX_FFT_FLAG_CONSERVATIVE:0 );
+/*TODO: 
+improvements: make sure that each FFT is aligned. each should best start at a cacheline
+                      remove barriers (requires to work on same data, check timers) 
+*/
+            plan->p1d[s] = (gmx_fft_t*)malloc(sizeof(gmx_fft_t)*nthreads);
+#pragma omp parallel 
+            {
+                int t = omp_get_thread_num();
+                int tsize = ((t+1)*pM[s]*pK[s]/nthreads)-(t*pM[s]*pK[s]/nthreads);
+                //printf("%d\n",tsize);
+#pragma omp critical 
+                {
+                    if ((flags&FFT5D_REALCOMPLEX) && ((!(flags&FFT5D_BACKWARD) && s==0) || ((flags&FFT5D_BACKWARD) && s==2))) {
+                        gmx_fft_init_many_1d_real( &plan->p1d[s][t], rC[s], tsize, (flags&FFT5D_NOMEASURE)?GMX_FFT_FLAG_CONSERVATIVE:0 );
+                    } else {
+                        gmx_fft_init_many_1d     ( &plan->p1d[s][t],  C[s], tsize, (flags&FFT5D_NOMEASURE)?GMX_FFT_FLAG_CONSERVATIVE:0 );
+                    }
+                }
             }
         }
+        
 #ifdef GMX_FFT_FFTW3 
     }
 #endif
@@ -561,6 +585,7 @@ fft5d_plan fft5d_plan_3d(int NG, int MG, int KG, MPI_Comm comm[2], int flags, t_
     plan->realcomplex=realcomplex;
 */
     plan->flags=flags;
+    plan->nthreads=nthreads;
     *rlin=lin;
     *rlout=lout;
     return plan;
@@ -596,7 +621,7 @@ static void splitaxes(t_complex* lout,const t_complex* lin,
     /* In the thread parallel case we want to loop over z and i
      * in a single for loop to allow for better load balancing.
      */
-#pragma omp parallel for private(z,in_z,out_z,i,in_i,out_i,y,in_y,out_y,x) schedule(static)
+#pragma omp for private(z,in_z,out_z,i,in_i,out_i,y,in_y,out_y,x) schedule(static)
     for (zi=0; zi<pK*P; zi++)
     {
         z = zi/P;
@@ -646,7 +671,7 @@ static void joinAxesTrans13(t_complex* lin,const t_complex* lout,
     /* In the thread parallel case we want to loop over x and i
      * in a single for loop to allow for better load balancing.
      */
-#pragma omp parallel for private(x,in_x,out_x,i,in_i,out_i,z,in_z,out_z,y) schedule(static)
+#pragma omp for private(x,in_x,out_x,i,in_i,out_i,z,in_z,out_z,y) schedule(static)
     for (xi=0; xi<pN*P; xi++)
     {
         x = xi/P;
@@ -693,7 +718,7 @@ static void joinAxesTrans12(t_complex* lin,const t_complex* lout,int maxN,int ma
     /* In the thread parallel case we want to loop over z and i
      * in a single for loop to allow for better load balancing.
      */
-#pragma omp parallel for private(i,in_i,out_i,z,in_z,out_z,in_x,out_x,x,y) schedule(static)
+#pragma omp for private(i,in_i,out_i,z,in_z,out_z,in_x,out_x,x,y) schedule(static)
     for (zi=0; zi<pK*P; zi++)
     {
         z = zi/P;
@@ -802,7 +827,7 @@ static void compute_offsets(fft5d_plan plan, int xs[], int xl[], int xc[], int N
 }
 
 static void print_localdata(const t_complex* lin, const char* txt, int s, fft5d_plan plan) {
-    int x,y,z,l;
+    int x,y,z,l,t;
     int *coor = plan->coor;
     int xs[3],xl[3],xc[3],NG[3];        
     int ll=(plan->flags&FFT5D_REALCOMPLEX)?1:2;
@@ -827,7 +852,7 @@ void fft5d_execute(fft5d_plan plan,fft5d_time times) {
     t_complex *lin = plan->lin;
     t_complex *lout = plan->lout;
 
-    gmx_fft_t *p1d=plan->p1d;
+    gmx_fft_t **p1d=plan->p1d;
 #ifdef FFT5D_MPI_TRANSPOSE
     FFTW(plan) *mpip=plan->mpip;
 #endif
@@ -838,7 +863,7 @@ void fft5d_execute(fft5d_plan plan,fft5d_time times) {
     double time_fft=0,time_local=0,time_mpi[2]={0},time=0;    
     int *N=plan->N,*M=plan->M,*K=plan->K,*pN=plan->pN,*pM=plan->pM,*pK=plan->pK,
         *C=plan->C,*P=plan->P,**iNin=plan->iNin,**oNin=plan->oNin,**iNout=plan->iNout,**oNout=plan->oNout;
-    int s=0;
+    int s=0,t,tstart;
     
     
 #ifdef GMX_FFT_FFTW3 
@@ -852,56 +877,89 @@ void fft5d_execute(fft5d_plan plan,fft5d_time times) {
     }
 #endif
 
+#pragma omp parallel private(s,t,tstart)
+    {
+        s=0;
+        t = omp_get_thread_num();
+        
     /*lin: x,y,z*/
-    if (plan->flags&FFT5D_DEBUG) print_localdata(lin, "%d %d: copy in lin\n", s, plan);
-    for (s=0;s<2;s++) {
-        if (times!=0)
-            time=MPI_Wtime();
-        
-        if ((plan->flags&FFT5D_REALCOMPLEX) && !(plan->flags&FFT5D_BACKWARD) && s==0) {
-            gmx_fft_many_1d_real(p1d[s],(plan->flags&FFT5D_BACKWARD)?GMX_FFT_COMPLEX_TO_REAL:GMX_FFT_REAL_TO_COMPLEX,lin,lout);
-        } else {
-            gmx_fft_many_1d(     p1d[s],(plan->flags&FFT5D_BACKWARD)?GMX_FFT_BACKWARD:GMX_FFT_FORWARD,               lin,lout);
+#pragma omp master 
+        {
+            if (plan->flags&FFT5D_DEBUG) print_localdata(lin, "%d %d: copy in lin\n", s, plan);
         }
-        if (times!=0)
-            time_fft+=MPI_Wtime()-time;
-    
-        if (plan->flags&FFT5D_DEBUG) print_localdata(lout, "%d %d: FFT %d\n", s, plan);
-        
-#ifdef GMX_MPI
-        if (GMX_PARALLEL_ENV_INITIALIZED && cart[s] !=0 && P[s]>1 )
+
+        for (s=0;s<2;s++) {  /*loop over first two FFT steps (corner rotations)*/
+
+        /* ---------- START FFT ------------ */
+#pragma omp master 
         {
             if (times!=0)
-                time=MPI_Wtime(); 
+                time=MPI_Wtime();
+        }
+        
+        tstart = (t*pM[s]*pK[s]/plan->nthreads)*C[s];
+        if ((plan->flags&FFT5D_REALCOMPLEX) && !(plan->flags&FFT5D_BACKWARD) && s==0) {
+            gmx_fft_many_1d_real(p1d[s][t],(plan->flags&FFT5D_BACKWARD)?GMX_FFT_COMPLEX_TO_REAL:GMX_FFT_REAL_TO_COMPLEX,lin+tstart,lout+tstart);
+        } else {
+            gmx_fft_many_1d(     p1d[s][t],(plan->flags&FFT5D_BACKWARD)?GMX_FFT_BACKWARD:GMX_FFT_FORWARD,               lin+tstart,lout+tstart);
+        }
+
+#pragma omp barrier
+#pragma omp master 
+        {
+            if (times!=0)
+                time_fft+=MPI_Wtime()-time;
+            if (plan->flags&FFT5D_DEBUG) print_localdata(lout, "%d %d: FFT %d\n", s, plan);
+        }
+        /* ---------- END FFT ------------ */        
+
+        /* ---------- START SPLIT + TRANSPOSE------------ (if parallel in in this dimension)*/
+#ifdef GMX_MPI
+        if (GMX_PARALLEL_ENV_INITIALIZED && cart[s] !=0 && P[s]>1 ) 
+        {
+#pragma omp master
+            { 
+                if (times!=0)
+                    time=MPI_Wtime(); 
+            }
             /*prepare for AllToAll
               1. (most outer) axes (x) is split into P[s] parts of size N[s] 
               for sending*/
             splitaxes(lin,lout,N[s],M[s],K[s], pN[s],pM[s],pK[s],P[s],C[s],iNout[s],oNout[s]);
-
-            if (times!=0)
+//#pragma omp barrier
+#pragma omp master 
             {
-                time_local+=MPI_Wtime()-time;
-            
-                /*send, recv*/
-                time=MPI_Wtime();
+                if (times!=0)
+                    time_local+=MPI_Wtime()-time;
             }
 
-#ifdef FFT5D_MPI_TRANSPOSE
-            FFTW(execute)(mpip[s]);  
-#else
-            if ((s==0 && !(plan->flags&FFT5D_ORDER_YZ)) || (s==1 && (plan->flags&FFT5D_ORDER_YZ))) 
-                MPI_Alltoall(lin,N[s]*pM[s]*K[s]*sizeof(t_complex)/sizeof(real),GMX_MPI_REAL,lout,N[s]*pM[s]*K[s]*sizeof(t_complex)/sizeof(real),GMX_MPI_REAL,cart[s]);
-            else
-                MPI_Alltoall(lin,N[s]*M[s]*pK[s]*sizeof(t_complex)/sizeof(real),GMX_MPI_REAL,lout,N[s]*M[s]*pK[s]*sizeof(t_complex)/sizeof(real),GMX_MPI_REAL,cart[s]);
-#endif /*FFT5D_MPI_TRANSPOSE*/
-            if (times!=0)
-                time_mpi[s]=MPI_Wtime()-time;
-        }
-#endif /*GMX_MPI*/
+        /* ---------- END SPLIT , START TRANSPOSE------------ */            
 
-    
-        if (times!=0)
-            time=MPI_Wtime();
+#pragma omp master 
+            {
+                time=MPI_Wtime();
+#ifdef FFT5D_MPI_TRANSPOSE
+                FFTW(execute)(mpip[s]);  
+#else
+                if ((s==0 && !(plan->flags&FFT5D_ORDER_YZ)) || (s==1 && (plan->flags&FFT5D_ORDER_YZ))) 
+                    MPI_Alltoall(lin,N[s]*pM[s]*K[s]*sizeof(t_complex)/sizeof(real),GMX_MPI_REAL,lout,N[s]*pM[s]*K[s]*sizeof(t_complex)/sizeof(real),GMX_MPI_REAL,cart[s]);
+                else
+                    MPI_Alltoall(lin,N[s]*M[s]*pK[s]*sizeof(t_complex)/sizeof(real),GMX_MPI_REAL,lout,N[s]*M[s]*pK[s]*sizeof(t_complex)/sizeof(real),GMX_MPI_REAL,cart[s]);
+#endif /*FFT5D_MPI_TRANSPOSE*/
+                if (times!=0)
+                    time_mpi[s]=MPI_Wtime()-time;
+            }  /*master*/
+#pragma omp barrier  /*only needed if this dimension is parallel*/            
+        }  /* GMX_PARALLEL.... */
+#endif /*GMX_MPI*/
+        /* ---------- END SPLIT + TRANSPOSE------------ */
+
+        /* ---------- START JOIN ------------ */
+#pragma omp master 
+        {
+            if (times!=0)
+                time=MPI_Wtime();
+        }
         /*bring back in matrix form 
           thus make  new 1. axes contiguos
           also local transpose 1 and 2/3 */
@@ -909,22 +967,36 @@ void fft5d_execute(fft5d_plan plan,fft5d_time times) {
             joinAxesTrans13(lin,lout,N[s],pM[s],K[s],pN[s],pM[s],pK[s],P[s],C[s+1],iNin[s+1],oNin[s+1]);
         else 
             joinAxesTrans12(lin,lout,N[s],M[s],pK[s],pN[s],pM[s],pK[s],P[s],C[s+1],iNin[s+1],oNin[s+1]);    
-        if (times!=0)
-            time_local+=MPI_Wtime()-time;
+//#pragma omp barrier 
+#pragma omp master 
+        {
+            if (times!=0)
+                time_local+=MPI_Wtime()-time;
     
-        if (plan->flags&FFT5D_DEBUG) print_localdata(lin, "%d %d: tranposed %d\n", s+1, plan);
-                
+            if (plan->flags&FFT5D_DEBUG) print_localdata(lin, "%d %d: tranposed %d\n", s+1, plan);
+        }       
+        /* ---------- END JOIN ------------ */
+
         /*if (debug) print_localdata(lin, "%d %d: transposed x-z\n", N1, M0, K, ZYX, coor);*/
-    }    
-    
-    if (times!=0)
-        time=MPI_Wtime();
-    if (plan->flags&FFT5D_INPLACE) lout=lin;
-    if ((plan->flags&FFT5D_REALCOMPLEX) && (plan->flags&FFT5D_BACKWARD)) {
-        gmx_fft_many_1d_real(p1d[s],(plan->flags&FFT5D_BACKWARD)?GMX_FFT_COMPLEX_TO_REAL:GMX_FFT_REAL_TO_COMPLEX,lin,lout);
-    } else {
-        gmx_fft_many_1d(     p1d[s],(plan->flags&FFT5D_BACKWARD)?GMX_FFT_BACKWARD:GMX_FFT_FORWARD,               lin,lout);
+    }  /* for(s=0;s<2;s++) */
+#pragma omp master 
+    {    
+        if (times!=0)
+            time=MPI_Wtime();
     }
+
+    if (plan->flags&FFT5D_INPLACE) lout=lin;
+
+    /*  ----------- FFT ----------- */
+    tstart = (t*pM[s]*pK[s]/plan->nthreads)*C[s];
+    if ((plan->flags&FFT5D_REALCOMPLEX) && (plan->flags&FFT5D_BACKWARD)) {
+        gmx_fft_many_1d_real(p1d[s][t],(plan->flags&FFT5D_BACKWARD)?GMX_FFT_COMPLEX_TO_REAL:GMX_FFT_REAL_TO_COMPLEX,lin+tstart,lout+tstart);
+    } else {
+        gmx_fft_many_1d(     p1d[s][t],(plan->flags&FFT5D_BACKWARD)?GMX_FFT_BACKWARD:GMX_FFT_FORWARD,               lin+tstart,lout+tstart);
+    }
+    /* ------------ END FFT ---------*/
+
+    }  /*omp parallel*/
 
     if (times!=0)
         time_fft+=MPI_Wtime()-time;
@@ -940,9 +1012,14 @@ void fft5d_execute(fft5d_plan plan,fft5d_time times) {
 }
 
 void fft5d_destroy(fft5d_plan plan) {
-    int s;
+    int s,t;
     for (s=0;s<3;s++) {
-        gmx_many_fft_destroy(plan->p1d[s]);
+        if (plan->p1d[s]) {
+            for (t=0;t<plan->nthreads;t++) { 
+                gmx_many_fft_destroy(plan->p1d[s][t]);
+            }
+            free(plan->p1d[s]);
+        }
         if (plan->iNin[s]) {
             free(plan->iNin[s]);
             plan->iNin[s]=0;
@@ -965,6 +1042,8 @@ void fft5d_destroy(fft5d_plan plan) {
 #ifdef FFT5D_MPI_TRANSPOS
     for (s=0;s<2;s++)    
         FFTW(destroy_plan)(plan->mpip[s]);
+    if (plan->p3d) 
+        FFTW(destroy_plan)(plan->p3d);
 #endif /* FFT5D_MPI_TRANSPOS */
 #endif /* GMX_FFT_FFTW3 */
 
@@ -973,7 +1052,7 @@ void fft5d_destroy(fft5d_plan plan) {
     
 #ifdef FFT5D_THREADS
 #ifdef FFT5D_FFTW_THREADS
-    FFTW(cleanup_threads)();
+    //FFTW(cleanup_threads)();
 #endif
 #endif
 

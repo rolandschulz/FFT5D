@@ -41,7 +41,7 @@
 /* none of the fftw3 calls, except execute(), are thread-safe, so 
    we need to serialize them with this mutex. */
 static tMPI_Thread_mutex_t big_fftw_mutex=TMPI_THREAD_MUTEX_INITIALIZER;
-static bool gmx_fft_threads_initialized=FALSE;
+static gmx_bool gmx_fft_threads_initialized=FALSE;
 #define FFTW_LOCK tMPI_Thread_mutex_lock(&big_fftw_mutex);
 #define FFTW_UNLOCK tMPI_Thread_mutex_unlock(&big_fftw_mutex);
 #else /* GMX_THREADS */
@@ -225,7 +225,7 @@ gmx_fft_init_many_1d_real(gmx_fft_t *        pfft,
     }    
     
     /* allocate aligned, and extra memory to make it unaligned */
-    p1  = (real *) FFTWPREFIX(malloc)(sizeof(real)*(nx+2)*howmany);
+    p1  = (real *) FFTWPREFIX(malloc)(sizeof(real)*(nx/2+1)*2*howmany + 8);
     if(p1==NULL)
     {
         FFTWPREFIX(free)(fft);
@@ -233,7 +233,7 @@ gmx_fft_init_many_1d_real(gmx_fft_t *        pfft,
         return ENOMEM;
     }
     
-    p2  = (real *) FFTWPREFIX(malloc)(sizeof(real)*(nx+2)*howmany);
+    p2  = (real *) FFTWPREFIX(malloc)(sizeof(real)*(nx/2+1)*2*howmany + 8);
     if(p2==NULL)
     {
         FFTWPREFIX(free)(p1);
@@ -743,7 +743,7 @@ gmx_fft_1d               (gmx_fft_t                  fft,
                           void *                     in_data,
                           void *                     out_data)
 {
-    int           aligned   = (((size_t)in_data & (size_t)out_data & 0xf)==0);
+    int           aligned   = ((((size_t)in_data | (size_t)out_data) & 0xf)==0);
     int           inplace   = (in_data == out_data);
     int           isforward = (dir == GMX_FFT_FORWARD);
     
@@ -777,7 +777,7 @@ gmx_fft_1d_real          (gmx_fft_t                  fft,
                           void *                     in_data,
                           void *                     out_data)
 {
-    int           aligned   = (((size_t)in_data & (size_t)out_data & 0xf)==0);
+    int           aligned   = ((((size_t)in_data | (size_t)out_data) & 0xf)==0);
     int           inplace   = (in_data == out_data);
     int           isforward = (dir == GMX_FFT_REAL_TO_COMPLEX);
     
@@ -818,7 +818,7 @@ gmx_fft_2d               (gmx_fft_t                  fft,
                           void *                     in_data,
                           void *                     out_data)
 {
-    int           aligned   = (((size_t)in_data & (size_t)out_data & 0xf)==0);
+    int           aligned   = ((((size_t)in_data | (size_t)out_data) & 0xf)==0);
     int           inplace   = (in_data == out_data);
     int           isforward = (dir == GMX_FFT_FORWARD);
     
@@ -844,7 +844,7 @@ gmx_fft_2d_real          (gmx_fft_t                  fft,
                           void *                     in_data,
                           void *                     out_data)
 {
-    int           aligned   = (((size_t)in_data & (size_t)out_data & 0xf)==0);
+    int           aligned   = ((((size_t)in_data | (size_t)out_data) & 0xf)==0);
     int           inplace   = (in_data == out_data);
     int           isforward = (dir == GMX_FFT_REAL_TO_COMPLEX);
     
@@ -880,7 +880,7 @@ gmx_fft_3d               (gmx_fft_t                  fft,
                           void *                     in_data,
                           void *                     out_data)
 {
-    int           aligned   = (((size_t)in_data & (size_t)out_data & 0xf)==0);
+    int           aligned   = ((((size_t)in_data | (size_t)out_data) & 0xf)==0);
     int           inplace   = (in_data == out_data);
     int           isforward = (dir == GMX_FFT_FORWARD);
     
@@ -906,7 +906,7 @@ gmx_fft_3d_real          (gmx_fft_t                  fft,
                           void *                     in_data,
                           void *                     out_data)
 {
-    int           aligned   = (((size_t)in_data & (size_t)out_data & 0xf)==0);
+    int           aligned   = ((((size_t)in_data | (size_t)out_data) & 0xf)==0);
     int           inplace   = (in_data == out_data);
     int           isforward = (dir == GMX_FFT_REAL_TO_COMPLEX);
     
