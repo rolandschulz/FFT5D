@@ -176,8 +176,10 @@ gmx_calloc_aligned(size_t size)
 /* NxMxK the size of the data
  * comm communicator to use for fft5d
  * P0 number of processor in 1st axes (can be null for automatic)
- * lin is allocated by fft5d because size of array is only known after planning phase */
-fft5d_plan fft5d_plan_3d(int NG, int MG, int KG, MPI_Comm comm[2], int flags, t_complex** rlin, t_complex** rlout)
+ * lin is allocated by fft5d because size of array is only known after planning phase 
+ * rlout2 is only used as intermediate buffer - only returned after allocation to reuse for back transform - should not be used by caller
+*/
+fft5d_plan fft5d_plan_3d(int NG, int MG, int KG, MPI_Comm comm[2], int flags, t_complex** rlin, t_complex** rlout, t_complex** rlout2)
 {
 
     int P[2],bMaster,prank[2],i,t;
@@ -186,7 +188,7 @@ fft5d_plan fft5d_plan_3d(int NG, int MG, int KG, MPI_Comm comm[2], int flags, t_
     int N[3],M[3],K[3],pN[3],pM[3],pK[3],oM[3],oK[3],*iNin[3]={0},*oNin[3]={0},*iNout[3]={0},*oNout[3]={0};
     int C[3],rC[3],nP[2];
     int lsize;
-    t_complex *lin=0,*lout=0;
+    t_complex *lin=0,*lout=0,*lout2=0;
     fft5d_plan plan;
     int s;
 
@@ -401,9 +403,11 @@ fft5d_plan fft5d_plan_3d(int NG, int MG, int KG, MPI_Comm comm[2], int flags, t_
     if (!(flags&FFT5D_NOMALLOC)) { 
         lin = (t_complex*)gmx_calloc_aligned(sizeof(t_complex) * lsize);   
         lout = (t_complex*)gmx_calloc_aligned(sizeof(t_complex) * lsize); 
+        lout2 = (t_complex*)gmx_calloc_aligned(sizeof(t_complex) * lsize); 
     } else {
         lin = *rlin;
         lout = *rlout;
+        lout2 = *rlout2;
     }
 
     plan = (fft5d_plan)calloc(1,sizeof(struct fft5d_plan_t));
@@ -567,6 +571,7 @@ improvements: make sure that each FFT is aligned. each should best start at a ca
     
     plan->lin=lin;
     plan->lout=lout;
+    plan->lout2=lout2;
     
     plan->NG=NG;plan->MG=MG;plan->KG=KG;
     
@@ -588,6 +593,7 @@ improvements: make sure that each FFT is aligned. each should best start at a ca
     plan->nthreads=nthreads;
     *rlin=lin;
     *rlout=lout;
+    *rlout2=lout2;
     return plan;
 }
 
@@ -610,40 +616,25 @@ enum order {
   NG, MG, KG is size of global data*/
 static void splitaxes(t_complex* lout,const t_complex* lin,
                       int maxN,int maxM,int maxK, int pN, int pM, int pK,
-                      int P,int NG,int *N, int* oN)
+                      int P,int NG,int *N, int* oN,int starty,int startz,int endy, int endz)
 {
     int x,y,z,i;
     int in_i,out_i,in_z,out_z,in_y,out_y;
 
-#ifdef FFT5D_THREADS
-    int zi;
-
-    /* In the thread parallel case we want to loop over z and i
-     * in a single for loop to allow for better load balancing.
-     */
-#pragma omp for private(z,in_z,out_z,i,in_i,out_i,y,in_y,out_y,x) schedule(static)
-    for (zi=0; zi<pK*P; zi++)
+    for (z=startz; z<endz+1; z++) /*3. z l*/ 
     {
-        z = zi/P;
-        i = zi - z*P;
-#else
-    for (z=0; z<pK; z++) /*3. z l*/ 
-    {
-#endif
-        in_z  = z*maxN*maxM;
-        out_z = z*NG*pM;
+        out_z  = z*maxN*maxM;
+        in_z = z*NG*pM;
 
-#ifndef FFT5D_THREADS
         for (i=0; i<P; i++) /*index cube along long axis*/
-#endif
         {
-            in_i  = in_z  + i*maxN*maxM*maxK;
-            out_i = out_z + oN[i];
-            for (y=0;y<pM;y++) { /*2. y k*/
-                in_y  = in_i  + y*maxN;
-                out_y = out_i + y*NG;
+            out_i  = out_z  + i*maxN*maxM*maxK;
+            in_i = in_z + oN[i];
+            for (y=(z==startz?starty:0);y<(z==endz?endy:pM);y++) { /*2. y k*/
+                out_y  = out_i  + y*maxN;
+                in_y = in_i + y*NG;
                 for (x=0;x<N[i];x++) { /*1. x j*/
-                    lout[in_y+x] = lin[out_y+x];
+                    lout[out_y+x] = lin[in_y+x];    //in=z*NG*pM+oN[i]+y*NG+x
                     /*after split important that each processor chunk i has size maxN*maxM*maxK and thus being the same size*/
                     /*before split data contiguos - thus if different processor get different amount oN is different*/
                 }
@@ -851,6 +842,7 @@ static void print_localdata(const t_complex* lin, const char* txt, int s, fft5d_
 void fft5d_execute(fft5d_plan plan,fft5d_time times) {
     t_complex *lin = plan->lin;
     t_complex *lout = plan->lout;
+    t_complex *lout2 = plan->lout2;
 
     gmx_fft_t **p1d=plan->p1d;
 #ifdef FFT5D_MPI_TRANSPOSE
@@ -863,7 +855,7 @@ void fft5d_execute(fft5d_plan plan,fft5d_time times) {
     double time_fft=0,time_local=0,time_mpi[2]={0},time=0;    
     int *N=plan->N,*M=plan->M,*K=plan->K,*pN=plan->pN,*pM=plan->pM,*pK=plan->pK,
         *C=plan->C,*P=plan->P,**iNin=plan->iNin,**oNin=plan->oNin,**iNout=plan->iNout,**oNout=plan->oNout;
-    int s=0,t,tstart;
+    int s=0,t,tstart,tend;
     
     
 #ifdef GMX_FFT_FFTW3 
@@ -877,7 +869,7 @@ void fft5d_execute(fft5d_plan plan,fft5d_time times) {
     }
 #endif
 
-#pragma omp parallel private(s,t,tstart)
+#pragma omp parallel private(s,t,tstart,tend)
     {
         s=0;
         t = omp_get_thread_num();
@@ -903,8 +895,6 @@ void fft5d_execute(fft5d_plan plan,fft5d_time times) {
         } else {
             gmx_fft_many_1d(     p1d[s][t],(plan->flags&FFT5D_BACKWARD)?GMX_FFT_BACKWARD:GMX_FFT_FORWARD,               lin+tstart,lout+tstart);
         }
-
-#pragma omp barrier
 #pragma omp master 
         {
             if (times!=0)
@@ -925,8 +915,10 @@ void fft5d_execute(fft5d_plan plan,fft5d_time times) {
             /*prepare for AllToAll
               1. (most outer) axes (x) is split into P[s] parts of size N[s] 
               for sending*/
-            splitaxes(lin,lout,N[s],M[s],K[s], pN[s],pM[s],pK[s],P[s],C[s],iNout[s],oNout[s]);
-//#pragma omp barrier
+            tend = ((t+1)*pM[s]*pK[s]/plan->nthreads);
+            tstart/=C[s];
+            splitaxes(lout2,lout,N[s],M[s],K[s], pN[s],pM[s],pK[s],P[s],C[s],iNout[s],oNout[s],tstart%pM[s],tstart/pM[s],tend%pM[s],tend/pM[s]);
+#pragma omp barrier /*barrier required before AllToAll (all input has to be their) - before timing to make timing more acurate*/
 #pragma omp master 
             {
                 if (times!=0)
@@ -939,18 +931,21 @@ void fft5d_execute(fft5d_plan plan,fft5d_time times) {
             {
                 time=MPI_Wtime();
 #ifdef FFT5D_MPI_TRANSPOSE
-                FFTW(execute)(mpip[s]);  
+                FFTW(execute)(mpip[s]);  //TODO would need to read from lout2 to work!  
 #else
                 if ((s==0 && !(plan->flags&FFT5D_ORDER_YZ)) || (s==1 && (plan->flags&FFT5D_ORDER_YZ))) 
-                    MPI_Alltoall(lin,N[s]*pM[s]*K[s]*sizeof(t_complex)/sizeof(real),GMX_MPI_REAL,lout,N[s]*pM[s]*K[s]*sizeof(t_complex)/sizeof(real),GMX_MPI_REAL,cart[s]);
+                    MPI_Alltoall(lout2,N[s]*pM[s]*K[s]*sizeof(t_complex)/sizeof(real),GMX_MPI_REAL,lout,N[s]*pM[s]*K[s]*sizeof(t_complex)/sizeof(real),GMX_MPI_REAL,cart[s]);
                 else
-                    MPI_Alltoall(lin,N[s]*M[s]*pK[s]*sizeof(t_complex)/sizeof(real),GMX_MPI_REAL,lout,N[s]*M[s]*pK[s]*sizeof(t_complex)/sizeof(real),GMX_MPI_REAL,cart[s]);
+                    MPI_Alltoall(lout2,N[s]*M[s]*pK[s]*sizeof(t_complex)/sizeof(real),GMX_MPI_REAL,lout,N[s]*M[s]*pK[s]*sizeof(t_complex)/sizeof(real),GMX_MPI_REAL,cart[s]);
 #endif /*FFT5D_MPI_TRANSPOSE*/
                 if (times!=0)
                     time_mpi[s]=MPI_Wtime()-time;
             }  /*master*/
-#pragma omp barrier  /*only needed if this dimension is parallel*/            
+#pragma omp barrier  /*only needed if this dimension is parallel (non communicating threads need to wait on data)*/            
         }  /* GMX_PARALLEL.... */
+        else {
+#pragma omp barrier  //TODO should be removed - only their because join isn't fixed yet
+        }
 #endif /*GMX_MPI*/
         /* ---------- END SPLIT + TRANSPOSE------------ */
 
@@ -967,7 +962,7 @@ void fft5d_execute(fft5d_plan plan,fft5d_time times) {
             joinAxesTrans13(lin,lout,N[s],pM[s],K[s],pN[s],pM[s],pK[s],P[s],C[s+1],iNin[s+1],oNin[s+1]);
         else 
             joinAxesTrans12(lin,lout,N[s],M[s],pK[s],pN[s],pM[s],pK[s],P[s],C[s+1],iNin[s+1],oNin[s+1]);    
-//#pragma omp barrier 
+//#pragma omp barrier  /*mgiht be required - currently implicit barrier because of parallel for*/
 #pragma omp master 
         {
             if (times!=0)
@@ -1073,7 +1068,7 @@ void fft5d_local_size(fft5d_plan plan,int* N1,int* M0,int* K0,int* K1,int** coor
 
 /*same as fft5d_plan_3d but with cartesian coordinator and automatic splitting 
   of processor dimensions*/
-fft5d_plan fft5d_plan_3d_cart(int NG, int MG, int KG, MPI_Comm comm, int P0, int flags, t_complex** rlin, t_complex** rlout) {
+fft5d_plan fft5d_plan_3d_cart(int NG, int MG, int KG, MPI_Comm comm, int P0, int flags, t_complex** rlin, t_complex** rlout, t_complex** rlout2) {
     MPI_Comm cart[2]={0};
 #ifdef GMX_MPI
     int size=1,prank=0;
@@ -1102,7 +1097,7 @@ fft5d_plan fft5d_plan_3d_cart(int NG, int MG, int KG, MPI_Comm comm, int P0, int
     MPI_Cart_sub(gcart, rdim1 , &cart[0]);
     MPI_Cart_sub(gcart, rdim2 , &cart[1]);
 #endif
-    return fft5d_plan_3d(NG, MG, KG, cart, flags, rlin, rlout); 
+    return fft5d_plan_3d(NG, MG, KG, cart, flags, rlin, rlout,rlout2); 
 }
 
 
