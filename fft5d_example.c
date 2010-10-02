@@ -51,7 +51,7 @@ int main(int argc,char** argv)
 	int c,lsize;
 	int Nb,Mb,Kb; /*dimension for backtransform (in starting order)*/
 
-	t_complex *lin,*lout,*initial,*lout2;
+	t_complex *lin,*lout,*initial,*lout2,*lout3;
 	int N1,M0,K0,K1,*coor;
 	fft5d_plan p1,p2;
 
@@ -130,7 +130,7 @@ Options:\n\
 	}
 #endif
 
-	p1 = fft5d_plan_3d_cart(rN,M,K,MPI_COMM_WORLD,P0, flags, &lin,&lout,&lout2);
+	p1 = fft5d_plan_3d_cart(rN,M,K,MPI_COMM_WORLD,P0, flags, &lin,&lout,&lout2,&lout3);
 	fft5d_local_size(p1,&N1,&M0,&K0,&K1,&coor);
 	lsize = N*M0*K1; 
 	initial=malloc(lsize*sizeof(t_complex)); 
@@ -139,7 +139,7 @@ Options:\n\
 	else {Nb=K;Mb=rN;Kb=M;}
 
 	p2 = fft5d_plan_3d_cart(Nb,Mb,Kb,MPI_COMM_WORLD,P0,  
-				(flags|FFT5D_BACKWARD|FFT5D_NOMALLOC)^FFT5D_ORDER_YZ,&lout,&lin,&lout2);
+				(flags|FFT5D_BACKWARD|FFT5D_NOMALLOC)^FFT5D_ORDER_YZ,&lout,&lin,&lout2,&lout3);
 	/*srand(time(0)+prank);*/
 	srand(time(0)+prank+1023);
 	init_random((real*)lin,lsize*sizeof(t_complex)/sizeof(real));

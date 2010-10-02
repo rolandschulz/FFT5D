@@ -1,6 +1,6 @@
 CC=mpicc
-#CFLAGS = -I.  -O3 -fomit-frame-pointer -finline-functions -Wall -Wno-unused -msse2 -funroll-all-loops -std=gnu99 -D HAVE_CONFIG_H -D GMX_FFT_FFTW3 -D FFT5D_THREADS  -fopenmp
-CFLAGS = -I. -g -O0 -Wall -Wno-unused -std=gnu99 -D HAVE_CONFIG_H -D GMX_FFT_FFTW3 -D FFT5D_THREADS  -fopenmp
+CFLAGS = -I.  -O3 -fomit-frame-pointer -finline-functions -Wall -Wno-unused -msse2 -funroll-all-loops -std=gnu99 -D HAVE_CONFIG_H -D GMX_FFT_FFTW3 -D FFT5D_THREADS  -fopenmp
+#CFLAGS = -I. -g -O0 -Wall -Wno-unused -std=gnu99 -D HAVE_CONFIG_H -D GMX_FFT_FFTW3 -D FFT5D_THREADS  -fopenmp
 
 
 LIBS = -Wl,-R $(HOME)/usr/lib -lfftw3f_threads -lfftw3f -lm -fopenmp
