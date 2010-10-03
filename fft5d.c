@@ -622,9 +622,20 @@ static void splitaxes(t_complex* lout,const t_complex* lin,
 {
     int x,y,z,i;
     int in_i,out_i,in_z,out_z,in_y,out_y;
+    int s_y,e_y;
 
     for (z=startz; z<endz+1; z++) /*3. z l*/ 
     {
+        if (z==startz) {
+            s_y=starty;
+        } else {
+            s_y=0;
+        }
+        if (z==endz) {
+            e_y=endy;
+        } else {
+            e_y=pM;
+        }
         out_z  = z*maxN*maxM;
         in_z = z*NG*pM;
 
@@ -632,7 +643,7 @@ static void splitaxes(t_complex* lout,const t_complex* lin,
         {
             out_i  = out_z  + i*maxN*maxM*maxK;
             in_i = in_z + oN[i];
-            for (y=(z==startz?starty:0);y<(z==endz?endy:pM);y++) { /*2. y k*/
+            for (y=s_y;y<e_y;y++) { /*2. y k*/
                 out_y  = out_i  + y*maxN;
                 in_y = in_i + y*NG;
                 for (x=0;x<N[i];x++) { /*1. x j*/
@@ -657,9 +668,21 @@ static void joinAxesTrans13(t_complex* lout,const t_complex* lin,
 {
     int i,x,y,z;
     int out_i,in_i,out_x,in_x,out_z,in_z;
+    int s_y,e_y;
 
     for (x=startx;x<endx+1;x++) /*1.j*/
     {
+        if (x==startx) {
+            s_y=starty;
+        } else {
+            s_y=0;
+        }
+        if (x==endx) {
+            e_y=endy;
+        } else {
+            e_y=pM;
+        }
+
         out_x  = x*KG*pM;
         in_x = x;
 
@@ -671,7 +694,7 @@ static void joinAxesTrans13(t_complex* lout,const t_complex* lin,
             {
                 out_z  = out_i  + z;
                 in_z = in_i + z*maxM*maxN;
-                for (y=(x==startx?starty:0);y<(x==endx?endy:pM);y++) { /*2.k*/
+                for (y=s_y;y<e_y;y++) { /*2.k*/
                     lout[out_z+y*KG] = lin[in_z+y*maxN]; /*out=x*KG*pM+oK[i]+z+y*KG*/
                 }
             }
@@ -689,9 +712,20 @@ static void joinAxesTrans12(t_complex* lout,const t_complex* lin,int maxN,int ma
                             int P,int MG, int* M, int* oM, int startx, int startz, int endx, int endz) {
     int i,z,y,x;
     int out_i,in_i,out_z,in_z,out_x,in_x;
+    int s_x,e_x;
 
     for (z=startz; z<endz+1; z++)
     {
+        if (z==startz) {
+            s_x=startx;
+        } else {
+            s_x=0;
+        }
+        if (z==endz) {
+            e_x=endx;
+        } else {
+            e_x=pN;
+        }
         out_z  = z*MG*pN;
         in_z = z*maxM*maxN;
 
@@ -699,7 +733,7 @@ static void joinAxesTrans12(t_complex* lout,const t_complex* lin,int maxN,int ma
         {
             out_i  = out_z  + oM[i];
             in_i = in_z + i*maxM*maxN*maxK;
-            for (x=(z==startz?startx:0);x<(z==endz?endx:pN);x++) {
+            for (x=s_x;x<e_x;x++) {
                 out_x  = out_i  + x*MG;
                 in_x = in_i + x;
                 for (y=0;y<M[i];y++) {
