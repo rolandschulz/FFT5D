@@ -924,7 +924,8 @@ llToAll
 
 #pragma omp master 
             {
-                time=MPI_Wtime();
+                if (times!=0)
+                    time=MPI_Wtime();
 #ifdef FFT5D_MPI_TRANSPOSE
                 FFTW(execute)(mpip[s]);  /*TODO would need to read from lout2 to work!  */
 #else
