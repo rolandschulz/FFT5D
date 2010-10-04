@@ -153,8 +153,11 @@ Options:\n\
 	    ttime=0;
 	    for (m=0;m<N_measure;m++) {
 	        ttime-=MPI_Wtime();
+#pragma omp parallel 
+		{
 		fft5d_execute(p1, &ptimes1);  //TODO this mixes 
 		fft5d_execute(p2, &ptimes2);
+		}
 		ttime+=MPI_Wtime();
 		if (m==0 && t==0) {
 

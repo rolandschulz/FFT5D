@@ -868,17 +868,18 @@ void fft5d_execute(fft5d_plan plan,fft5d_time times) {
     
 #ifdef GMX_FFT_FFTW3 
     if (plan->p3d) {
+#pragma omp master
+        {
         if (times!=0)
             time=MPI_Wtime();
         FFTW(execute)(plan->p3d); 
         if (times!=0)
             times->fft+=MPI_Wtime()-time;
+        }
         return;
     }
 #endif
 
-#pragma omp parallel private(s,t,tstart,tend,bParallelDim,fftout,joinin)
-    {
         s=0;
         t = omp_get_thread_num();
         
@@ -1029,20 +1030,19 @@ llToAll
     }
     /* ------------ END FFT ---------*/
 
-
-    }  /*omp parallel*/
-
-
-    if (times!=0)
-        time_fft+=MPI_Wtime()-time;
-    if (plan->flags&FFT5D_DEBUG) print_localdata(lout, "%d %d: FFT %d\n", s, plan);
-    /*if (debug) print_localdata(lout, "%d %d: FFT in y\n", N1, M, K0, YZX, coor);*/
-    
-    if (times!=0) {
-        times->fft+=time_fft;
-        times->local+=time_local;
-        times->mpi2+=time_mpi[1];
-        times->mpi1+=time_mpi[0];
+#pragma omp master
+    {
+        if (times!=0)
+            time_fft+=MPI_Wtime()-time;
+        if (plan->flags&FFT5D_DEBUG) print_localdata(lout, "%d %d: FFT %d\n", s, plan);
+        /*if (debug) print_localdata(lout, "%d %d: FFT in y\n", N1, M, K0, YZX, coor);*/
+        
+        if (times!=0) {
+            times->fft+=time_fft;
+            times->local+=time_local;
+            times->mpi2+=time_mpi[1];
+            times->mpi1+=time_mpi[0];
+        }
     }
 }
 

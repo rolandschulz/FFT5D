@@ -134,8 +134,8 @@ Options:\n\
 
     }
     
-    /*init_random((real*)in,N*M*K*sizeof(t_complex)/sizeof(real));*/
-    bzero(in,N*M*K*2sizeof(complex));
+    init_random((real*)in,N*M*K*sizeof(t_complex)/sizeof(real));
+    //bzero(in,N*M*K*sizeof(FFTW(complex)));
 
     double min_time=1e30,stime=0;
     for (int t=0;t<8;t++) {
