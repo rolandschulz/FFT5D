@@ -142,7 +142,7 @@ static int vmax(int* a, int s) {
     return max;
 } 
 #ifndef FFT5D_THREADS
-static int omp_get_num_threads() { return 1; }
+static int omp_get_max_threads() { return 1; }
 static int omp_get_thread_num() {  return 0; }
 #endif    
 
@@ -420,13 +420,9 @@ fft5d_plan fft5d_plan_3d(int NG, int MG, int KG, MPI_Comm comm[2], int flags, t_
     
     int nthreads = 1;
     //FFTW(init_threads)();
-    #pragma omp parallel
-    {
-        #pragma omp master
-        {
-            nthreads = omp_get_num_threads();
-        }
-    }
+    
+    nthreads = omp_get_max_threads();
+
     if (prank[0] == 0 && prank[1] == 0)
     {
         printf("Running on %d threads\n",nthreads);        
