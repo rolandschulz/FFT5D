@@ -55,10 +55,13 @@
 #include "tmpi.h"
 #endif
 
+#ifdef GMX_OPENMP
+#define FFT5D_THREADS
+#endif
 #ifdef FFT5D_THREADS
 #include <omp.h>
 /* requires fftw compiled with openmp */
-#define FFT5D_FFTW_THREADS
+/* #define FFT5D_FFTW_THREADS (now set by cmake) */
 #endif
 
 #include "fft5d.h"
@@ -197,7 +200,7 @@ fft5d_plan fft5d_plan_3d(int NG, int MG, int KG, MPI_Comm comm[2], int flags, t_
 
     /* comm, prank and P are in the order of the decomposition (plan->cart is in the order of transposes) */
 #ifdef GMX_MPI
-    if (GMX_PARALLEL_ENV_INITIALIZED && comm[0] != 0)
+    if (GMX_PARALLEL_ENV_INITIALIZED && comm[0] != MPI_COMM_NULL)
     {
         MPI_Comm_size(comm[0],&P[0]);
         MPI_Comm_rank(comm[0],&prank[0]);
@@ -209,7 +212,7 @@ fft5d_plan fft5d_plan_3d(int NG, int MG, int KG, MPI_Comm comm[2], int flags, t_
         prank[0] = 0;
     }
 #ifdef GMX_MPI
-    if (GMX_PARALLEL_ENV_INITIALIZED && comm[1] != 0)
+    if (GMX_PARALLEL_ENV_INITIALIZED && comm[1] != MPI_COMM_NULL)
     {
         MPI_Comm_size(comm[1],&P[1]);
         MPI_Comm_rank(comm[1],&prank[1]);
@@ -428,8 +431,13 @@ fft5d_plan fft5d_plan_3d(int NG, int MG, int KG, MPI_Comm comm[2], int flags, t_
         printf("Running on %d threads\n",nthreads);        
     }
 
-#ifdef GMX_FFT_FFTW3  /*if not FFTW - then we don't do a 3d plan but insead only 1D plans */
-    if ((!(flags&FFT5D_INPLACE)) && (!(P[0]>1 || P[1]>1))) {  /*don't do 3d plan in parallel or if in_place requested */  
+#ifdef GMX_FFT_FFTW3  /*if not FFTW - then we don't do a 3d plan but instead use only 1D plans */
+    /* It is possible to use the 3d plan with OMP threads - but in that case it is not allowed to be called from
+     * within a parallel region. For now deactivated. If it should be supported it has to made sure that
+     * that the execute of the 3d plan is in a master/serial block (since it contains it own parallel region)
+     * and that the 3d plan is faster than the 1d plan.
+     */
+    if ((!(flags&FFT5D_INPLACE)) && (!(P[0]>1 || P[1]>1)) && nthreads==1) {  /*don't do 3d plan in parallel or if in_place requested */
             int fftwflags=FFTW_DESTROY_INPUT;
             fftw_iodim dims[3];
             int inNG=NG,outMG=MG,outKG=KG;
@@ -530,17 +538,20 @@ improvements: make sure that each FFT is aligned. each should best start at a ca
                      can  timers be improved?
 */
             plan->p1d[s] = (gmx_fft_t*)malloc(sizeof(gmx_fft_t)*nthreads);
-#pragma omp parallel 
+
+            /* Make sure that the init routines are only called by one thread at a time and in order
+               (later is only important to not confuse valgrind)
+             */
+#pragma omp parallel for schedule(static),ordered
+            for(t=0; t<nthreads; t++)
+#pragma omp ordered
             {
-                int t = omp_get_thread_num();
                 int tsize = ((t+1)*pM[s]*pK[s]/nthreads)-(t*pM[s]*pK[s]/nthreads);
-#pragma omp critical 
-                {
-                    if ((flags&FFT5D_REALCOMPLEX) && ((!(flags&FFT5D_BACKWARD) && s==0) || ((flags&FFT5D_BACKWARD) && s==2))) {
-                        gmx_fft_init_many_1d_real( &plan->p1d[s][t], rC[s], tsize, (flags&FFT5D_NOMEASURE)?GMX_FFT_FLAG_CONSERVATIVE:0 );
-                    } else {
-                        gmx_fft_init_many_1d     ( &plan->p1d[s][t],  C[s], tsize, (flags&FFT5D_NOMEASURE)?GMX_FFT_FLAG_CONSERVATIVE:0 );
-                    }
+                
+                if ((flags&FFT5D_REALCOMPLEX) && ((!(flags&FFT5D_BACKWARD) && s==0) || ((flags&FFT5D_BACKWARD) && s==2))) {
+                    gmx_fft_init_many_1d_real( &plan->p1d[s][t], rC[s], tsize, (flags&FFT5D_NOMEASURE)?GMX_FFT_FLAG_CONSERVATIVE:0 );
+                } else {
+                    gmx_fft_init_many_1d     ( &plan->p1d[s][t],  C[s], tsize, (flags&FFT5D_NOMEASURE)?GMX_FFT_FLAG_CONSERVATIVE:0 );
                 }
             }
         }
@@ -814,7 +825,7 @@ static void compute_offsets(fft5d_plan plan, int xs[], int xl[], int xc[], int N
             rotate(NG);            
         }
     }
-    if (plan->flags&FFT5D_REALCOMPLEX && ((!(plan->flags&FFT5D_BACKWARD) && s==0) || (plan->flags&FFT5D_BACKWARD && s==2))) {
+    if ((plan->flags&FFT5D_REALCOMPLEX) && ((!((plan->flags&FFT5D_BACKWARD)) && s==0) || ((plan->flags&FFT5D_BACKWARD) && s==2))) {
         xl[0] = rC[s];
     }
 }
@@ -960,10 +971,14 @@ llToAll
 #ifdef FFT5D_MPI_TRANSPOSE
                 FFTW(execute)(mpip[s]);  /*TODO would need to read from lout2 to work!  */
 #else
+#ifdef GMX_MPI
                 if ((s==0 && !(plan->flags&FFT5D_ORDER_YZ)) || (s==1 && (plan->flags&FFT5D_ORDER_YZ))) 
                     MPI_Alltoall(lout2,N[s]*pM[s]*K[s]*sizeof(t_complex)/sizeof(real),GMX_MPI_REAL,lout3,N[s]*pM[s]*K[s]*sizeof(t_complex)/sizeof(real),GMX_MPI_REAL,cart[s]);
                 else
                     MPI_Alltoall(lout2,N[s]*M[s]*pK[s]*sizeof(t_complex)/sizeof(real),GMX_MPI_REAL,lout3,N[s]*M[s]*pK[s]*sizeof(t_complex)/sizeof(real),GMX_MPI_REAL,cart[s]);
+#else
+                gmx_incons("fft5d MPI call without MPI configuration");
+#endif /*GMX_MPI*/
 #endif /*FFT5D_MPI_TRANSPOSE*/
                 if (times!=0)
                     time_mpi[s]=MPI_Wtime()-time;
@@ -987,7 +1002,9 @@ llToAll
         }
         /*bring back in matrix form 
           thus make  new 1. axes contiguos
-          also local transpose 1 and 2/3 */
+          also local transpose 1 and 2/3 
+          runs on thread used for following FFT (thus needing a barrier before but not afterwards)
+        */
         if ((s==0 && !(plan->flags&FFT5D_ORDER_YZ)) || (s==1 && (plan->flags&FFT5D_ORDER_YZ))) {
             tstart = (t * pM[s]*pN[s]/plan->nthreads);            
             tend = ((t+1)*pM[s]*pN[s]/plan->nthreads);            
@@ -1015,7 +1032,7 @@ llToAll
             time=MPI_Wtime();
     }
 
-    if (plan->flags&FFT5D_INPLACE) lout=lin;
+    if (plan->flags&FFT5D_INPLACE) lout=lin; /*in place currently not supported*/
 
     /*  ----------- FFT ----------- */
     tstart = (t*pM[s]*pK[s]/plan->nthreads)*C[s];
@@ -1144,7 +1161,7 @@ void fft5d_compare_data(const t_complex* lin, const t_complex* in, fft5d_plan pl
     int x,y,z,l;
     int *coor = plan->coor;
     int ll=2; /*compare ll values per element (has to be 2 for complex)*/
-    if (plan->flags&FFT5D_REALCOMPLEX && plan->flags&FFT5D_BACKWARD) 
+    if ((plan->flags&FFT5D_REALCOMPLEX) && (plan->flags&FFT5D_BACKWARD))
     {
         ll=1;
     }

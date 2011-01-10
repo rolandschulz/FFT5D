@@ -197,7 +197,7 @@ Options:\n\
 		printf("Timing (ms): local: %f, fft: %f, mpi1: %f, mpi2: %f, total: %f\n",
 				otimes.local*1000,otimes.fft*1000,otimes.mpi1*1000,otimes.mpi2*1000,ottime*1000);
 	}
-	
+
 	fft5d_destroy(p2);
 	fft5d_destroy(p1);
 	
